@@ -2,3 +2,6 @@ node_modules/
 .tools/
 coverage/
 dist/
+.env
+.env.*
+!.env.example

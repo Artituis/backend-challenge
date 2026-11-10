@@ -1,8 +1,10 @@
 # Camada de domínio
 
-Esta entrega implementa apenas o domínio puro em `src/domain`, com testes em
-`tests/domain`. Não contém NestJS, ORM, decorators, I/O, geração de IDs, relógio
-global ou dependências de produção. IDs, timestamps e hashes chegam pela aplicação.
+O domínio puro fica em `src/domain`, com testes em `tests/domain`. Essa camada
+não contém NestJS, ORM, decorators, I/O, geração de IDs ou relógio global.
+IDs, timestamps e hashes chegam pela aplicação. A Fase 2 adiciona MikroORM,
+PostgreSQL, migrations e um módulo NestJS em `src/infrastructure/persistence`.
+Configuração, decisões de persistência e execução estão em [PERSISTENCE.md](PERSISTENCE.md).
 `src/domain/index.ts` exporta a API pública.
 
 ## Precisão monetária
@@ -14,8 +16,8 @@ duas casas: `"001.2"` vira `"1.20"`, e `"-0.00"` vira `"0.00"`.
 
 A aritmética usa centavos em `bigint`, sem converter dinheiro para `number`.
 Assim, adição, subtração e negação são exatas mesmo além de `Number.MAX_SAFE_INTEGER`.
-O domínio não estabelece o limite de magnitude do futuro tipo SQL. O adapter deve
-validar sua capacidade antes de persistir, sem truncar ou arredondar valores.
+O domínio não estabelece o limite de magnitude do tipo SQL. O adapter limita a
+36 dígitos inteiros e 2 casas decimais, sem truncar ou arredondar valores.
 
 **Política de arredondamento: nenhum arredondamento implícito.** `1.005`, `1.999`
 e até `1.000` são rejeitados. Não existem multiplicação ou divisão monetária nesta
@@ -140,11 +142,12 @@ A política padrão não descarta eventos após um número de falhas. O worker d
 monitorar tentativas e lag e permitir recuperação operacional. Retry de referência
 ausente e sua política de TTL pertencem ao futuro worker de transações, não à outbox.
 
-## Garantias que exigem persistência
+## Garantias da persistência
 
 Uma entidade isolada não consegue impedir que outro processo crie uma wallet ou
-aplique o mesmo evento. **Esta entrega não implementa concorrência distribuída,
-exactly-once ou publicação transacional real**. A próxima camada deverá aplicar:
+aplique o mesmo evento. A Fase 2 implementa as constraints, triggers, locks e a
+unidade de trabalho abaixo. Os use cases de processamento e a integração com
+mensageria continuam necessários para completar o fluxo distribuído:
 
 | Garantia | Mecanismo exigido no PostgreSQL / aplicação |
 | --- | --- |
@@ -158,7 +161,7 @@ exactly-once ou publicação transacional real**. A próxima camada deverá apli
 | Outbox identificável | Chave única do evento em `id` |
 | Ledger imutável | Permissões/trigger que impeçam update/delete, além de constraints aritméticas |
 | Commit financeiro atômico | Wallet, transação, ledger, inbox e outbox na mesma transação SQL |
-| Publishers concorrentes | Claim/lock por registro, lease e recuperação após crash |
+| Publishers concorrentes | `FOR UPDATE SKIP LOCKED` durante a transação; rollback/crash libera os locks |
 
 Mesmo com locking, a outbox entrega **at-least-once**: uma queda após publicar e
 antes de registrar publicação pode gerar duplicata. Consumidores deduplicam pelo
@@ -185,4 +188,6 @@ Os testes unitários usam Bun e datas explícitas, sem serviços externos. Cobre
 precisão, normalização, rejeição de arredondamento, invariantes de saldo/versão,
 atomicidade em falhas, reidratação, matriz de transições, regras de referências,
 conflitos de idempotência, ledger, isolamento de objetos mutáveis e retries.
-Eles não substituem os testes futuros de integração e concorrência do desafio.
+Os testes em `tests/integration` verificam migrations, integridade SQL, atomicidade
+entre repositórios, concorrência em débitos e claims de outbox em PostgreSQL real.
+Eles não substituem os futuros testes ponta a ponta com API e mensageria.

@@ -1,11 +1,15 @@
 # Technical Challenge — Distributed Wagering Processor
 
-> **Implementação atual:** camada de domínio pura em [`src/domain`](src/domain),
-> sem dependências de produção. Decisões e limites em [`ARCHITECTURE.md`](ARCHITECTURE.md).
+> **Implementação atual:** domínio puro e **Fase 2 — persistência** com MikroORM,
+> PostgreSQL, migrations reversíveis, repositórios e módulo NestJS.
+> Configuração e decisões em [`PERSISTENCE.md`](PERSISTENCE.md) e [`ARCHITECTURE.md`](ARCHITECTURE.md).
 >
 > Requer Bun 1.x. Instale com `bun install --frozen-lockfile` e execute:
 > `bun run typecheck`, `bun test` e `bun run test:coverage`.
-> A suíte unitária não requer banco, NestJS ou filas.
+> A suíte de domínio não requer banco ou filas. Integração completa desta fase:
+> `docker compose --profile test run --build --rm test`.
+> Para subir o banco e aplicar migrations: `docker compose up -d --wait postgres`
+> e `docker compose run --build --rm migrate`.
 
 ## Bem-vindo à Jungle Gaming 🦧
 
