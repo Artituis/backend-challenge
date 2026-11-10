@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start:worker": "bun src/worker.ts",
+    "sqs:provision": "bun src/infrastructure/messaging/provision.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "test:integration": "bun test tests/integration",
@@ -16,6 +18,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "3.1166.0",
     "@mikro-orm/core": "6.6.17",
     "@mikro-orm/migrations": "6.6.17",
     "@mikro-orm/postgresql": "6.6.17",

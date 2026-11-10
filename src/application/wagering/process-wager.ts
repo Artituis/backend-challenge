@@ -14,6 +14,42 @@ const businessFailures = new Set([
 export class ProcessWager {
   constructor(private readonly uow: UnitOfWork, private readonly runtime: ApplicationRuntime) {}
 
+  /** Background retry shares the financial rules, but never replaces the submission response. */
+  async reprocessNextPending(policy: { ttlMs: number; baseDelayMs: number; maxDelayMs: number }): Promise<boolean> {
+    return this.uow.run(async r => {
+      const now = this.runtime.now();
+      const job = await r.pendingReferences.claim(now);
+      if (!job) return false;
+      const tx = await r.transactions.findById(job.transactionId);
+      if (!tx || tx.status !== WagerTransactionStatus.PendingReference) {
+        await r.pendingReferences.complete(job.transactionId);
+        return true;
+      }
+      const wallet = await r.wallets.findById(tx.walletId);
+      if (!wallet) throw new DomainError(FailureCode.InvalidState, 'Pending wager wallet missing');
+      const at = new Date(Math.max(now.getTime(), tx.createdAt.getTime(), wallet.updatedAt.getTime()));
+      const expiresAt = tx.createdAt.getTime() + policy.ttlMs;
+      let entry: WalletLedgerEntry | undefined;
+      if (now.getTime() >= expiresAt) tx.reject(FailureCode.ReferenceExpired);
+      else {
+        const reference = await r.transactions.findReference(tx.providerId, tx.referenceExternalTransactionId!);
+        // References which themselves await another reference can still become valid.
+        if (!reference || reference.status === WagerTransactionStatus.PendingReference || reference.status === WagerTransactionStatus.Pending) {
+          const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * 2 ** Math.min(job.attempts, 30));
+          await r.pendingReferences.retry(tx.id, new Date(Math.min(expiresAt, now.getTime() + delay)));
+          return true;
+        }
+        entry = await this.apply(r, wallet, tx, reference, at);
+      }
+      r.transactions.save(tx);
+      if (entry) r.wallets.save(wallet);
+      this.enqueue(r, tx, { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(),
+        walletVersion: wallet.version, failureCode: tx.failureCode ?? null }, entry, at);
+      await r.pendingReferences.complete(tx.id);
+      return true;
+    });
+  }
+
   async execute(command: WagerCommand): Promise<WagerResponse> {
     // Project and normalize once, before awaiting; callers cannot mutate an in-flight request.
     const input: CreateWagerTransactionProps = {
@@ -86,7 +122,8 @@ export class ProcessWager {
 
   private async apply(r: Repositories, wallet: Wallet, tx: WagerTransaction,
     reference: WagerTransaction | undefined, at: Date): Promise<WalletLedgerEntry | undefined> {
-    if (tx.referenceExternalTransactionId !== undefined && reference === undefined) {
+    if (tx.referenceExternalTransactionId !== undefined && (reference === undefined
+      || reference.status === WagerTransactionStatus.PendingReference || reference.status === WagerTransactionStatus.Pending)) {
       tx.markPendingReference();
       return undefined;
     }

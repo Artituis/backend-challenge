@@ -1,9 +1,10 @@
 # Technical Challenge — Distributed Wagering Processor
 
-> **Implementação atual:** domínio, persistência e **Fase 3 — casos de uso,
-> concorrência e transacionalidade**, com MikroORM/PostgreSQL e composição NestJS.
+> **Implementação atual:** domínio, persistência, casos de uso e **Fase 4 — SQS,
+> inbox/outbox e workers resilientes**, com MikroORM/PostgreSQL e NestJS.
 > Configuração e decisões em [`PERSISTENCE.md`](PERSISTENCE.md),
-> [`ARCHITECTURE.md`](ARCHITECTURE.md) e [`WAGERING.md`](WAGERING.md).
+> [`ARCHITECTURE.md`](ARCHITECTURE.md), [`WAGERING.md`](WAGERING.md) e [`MESSAGING.md`](MESSAGING.md).
+> Para iniciar banco, LocalStack, migrations e workers: `docker compose up --build -d worker`.
 >
 > Requer Bun 1.x. Instale com `bun install --frozen-lockfile` e execute:
 > `bun run typecheck`, `bun test` e `bun run test:coverage`.

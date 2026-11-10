@@ -1,4 +1,47 @@
 services:
+  localstack:
+    image: localstack/localstack:4.10.0
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      SQS_ENDPOINT_STRATEGY: dynamic
+    ports:
+      - "127.0.0.1:${LOCALSTACK_PORT:-4566}:4566"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  sqs-init:
+    build: .
+    environment: &sqs-environment
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_MAX_RECEIVES: ${SQS_MAX_RECEIVES:-5}
+      SQS_VISIBILITY_SECONDS: ${SQS_VISIBILITY_SECONDS:-60}
+    depends_on:
+      localstack:
+        condition: service_healthy
+    command: ["bun", "run", "sqs:provision"]
+  worker:
+    build: .
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      <<: *sqs-environment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wagering}:${POSTGRES_PASSWORD:-wagering-local}@postgres:5432/${POSTGRES_DB:-wagering}
+      CONSUMER_CONCURRENCY: ${CONSUMER_CONCURRENCY:-4}
+      OUTBOX_CONCURRENCY: ${OUTBOX_CONCURRENCY:-2}
+      PENDING_REFERENCE_TTL_MS: ${PENDING_REFERENCE_TTL_MS:-86400000}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      sqs-init:
+        condition: service_completed_successfully
+    command: ["bun", "run", "start:worker"]
   postgres:
     image: postgres:17-alpine
     environment:
@@ -40,8 +83,14 @@ services:
     profiles: [test]
     environment:
       TEST_DATABASE_URL: postgresql://wagering:wagering-test@postgres-test:5432/wagering_test
+      TEST_SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     depends_on:
       postgres-test:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
     command: ["sh", "-c", "bun run typecheck && bun test"]
 volumes:

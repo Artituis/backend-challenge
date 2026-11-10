@@ -1,5 +1,8 @@
 # Persistência — Fase 2
 
+A Fase 4 adiciona workers SQS, quarentena e agendamentos persistentes de referências.
+Consulte [MESSAGING.md](MESSAGING.md) para execução e garantias de entrega.
+
 A Fase 3 estende esta infraestrutura com locks transacionais de identidade,
 respostas originais imutáveis e classificação de erros recuperáveis. Consulte
 [WAGERING.md](WAGERING.md) para o fluxo completo dos casos de uso.

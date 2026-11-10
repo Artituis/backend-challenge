@@ -3,7 +3,7 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 import type { Repositories, UnitOfWork } from '../../application/ports/persistence';
 import { RetryableTransactionError } from '../../application/wagering/contracts';
 import { MikroInboxRepository, MikroOutboxRepository, MikroWagerTransactionRepository,
-  MikroWalletLedgerRepository, MikroWalletRepository, MikroIdentityLocks, MikroWagerResultRepository, TransactionScope } from './repositories';
+  MikroWalletLedgerRepository, MikroWalletRepository, MikroIdentityLocks, MikroWagerResultRepository, MikroPendingReferences, TransactionScope } from './repositories';
 
 function retryable(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -23,9 +23,10 @@ export class MikroUnitOfWork implements UnitOfWork {
     try {
       return await this.orm.em.fork({ clear: true, useContext: false }).transactional(async em => {
         await em.execute("set local lock_timeout = '5s'");
+        await em.execute("set local statement_timeout = '15s'");
         const scope = new TransactionScope(em);
         try {
-          return await work({ identities: new MikroIdentityLocks(scope), results: new MikroWagerResultRepository(scope),
+          return await work({ pendingReferences: new MikroPendingReferences(scope), identities: new MikroIdentityLocks(scope), results: new MikroWagerResultRepository(scope),
             wallets: new MikroWalletRepository(scope),
             transactions: new MikroWagerTransactionRepository(scope), ledger: new MikroWalletLedgerRepository(scope),
             inbox: new MikroInboxRepository(scope), outbox: new MikroOutboxRepository(scope) });

@@ -19,5 +19,5 @@ Module({
     { provide: UNIT_OF_WORK, inject: [MikroORM], useFactory: (orm: MikroORM) => new MikroUnitOfWork(orm) },
     { provide: PersistenceShutdown, inject: [MikroORM], useFactory: (orm: MikroORM) => new PersistenceShutdown(orm) },
   ],
-  exports: [UNIT_OF_WORK],
+  exports: [UNIT_OF_WORK, MikroORM],
 })(PersistenceModule);

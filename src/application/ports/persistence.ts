@@ -40,6 +40,12 @@ export interface OutboxRepository {
   save(message: OutboxMessage): void;
 }
 export interface Repositories {
+  readonly pendingReferences: {
+    /** Claim one scheduling row with SKIP LOCKED, until the UnitOfWork commits. */
+    claim(now: Date): Promise<{ transactionId: string; attempts: number } | undefined>;
+    retry(transactionId: string, nextAttemptAt: Date): Promise<void>;
+    complete(transactionId: string): Promise<void>;
+  };
   /** Acquire once, before row reads. Protects identities even when rows do not yet exist. */
   readonly identities: { lock(keys: readonly string[]): Promise<void> };
   readonly results: {

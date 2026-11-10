@@ -7,6 +7,7 @@ export enum FailureCode {
   InvalidState = 'INVALID_STATE',
   InvalidReference = 'INVALID_REFERENCE',
   ReferenceNotFound = 'REFERENCE_NOT_FOUND',
+  ReferenceExpired = 'REFERENCE_EXPIRED',
   AlreadyReversed = 'ALREADY_REVERSED',
   IdempotencyConflict = 'IDEMPOTENCY_CONFLICT',
   InvalidLedger = 'INVALID_LEDGER',

@@ -104,6 +104,25 @@ export class MikroWagerTransactionRepository extends TrackedRepository<WagerTran
   }
 }
 
+export class MikroPendingReferences {
+  constructor(private readonly scope: TransactionScope) {}
+  async claim(now: Date): Promise<{ transactionId: string; attempts: number } | undefined> {
+    this.scope.assertActive();
+    const rows = await this.scope.em.execute<{ transactionId: string; attempts: number }[]>(`
+      select transaction_id as "transactionId", attempts from pending_reference_jobs
+      where next_attempt_at <= ? order by next_attempt_at, transaction_id limit 1 for update skip locked`, [now]);
+    return rows[0];
+  }
+  async retry(transactionId: string, nextAttemptAt: Date): Promise<void> {
+    this.scope.assertActive();
+    await this.scope.em.execute('update pending_reference_jobs set attempts = attempts + 1, next_attempt_at = ? where transaction_id = ?', [nextAttemptAt, transactionId]);
+  }
+  async complete(transactionId: string): Promise<void> {
+    this.scope.assertActive();
+    await this.scope.em.execute('delete from pending_reference_jobs where transaction_id = ?', [transactionId]);
+  }
+}
+
 export class MikroIdentityLocks {
   private acquired = false;
   constructor(private readonly scope: TransactionScope) {}
