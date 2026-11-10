@@ -1,5 +1,12 @@
 # Technical Challenge — Distributed Wagering Processor
 
+> **Implementação atual:** camada de domínio pura em [`src/domain`](src/domain),
+> sem dependências de produção. Decisões e limites em [`ARCHITECTURE.md`](ARCHITECTURE.md).
+>
+> Requer Bun 1.x. Instale com `bun install --frozen-lockfile` e execute:
+> `bun run typecheck`, `bun test` e `bun run test:coverage`.
+> A suíte unitária não requer banco, NestJS ou filas.
+
 ## Bem-vindo à Jungle Gaming 🦧
 
 A **Jungle Gaming** é uma software house especializada em iGaming — desenvolvemos plataformas de cassino online com tecnologia de ponta: NestJS, Bun, TanStack, DDD e arquitetura orientada a eventos. Somos apaixonados por engenharia de software e acreditamos que grandes produtos nascem de grandes times.
