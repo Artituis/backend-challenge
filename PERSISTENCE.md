@@ -1,5 +1,9 @@
 # Persistência — Fase 2
 
+A Fase 3 estende esta infraestrutura com locks transacionais de identidade,
+respostas originais imutáveis e classificação de erros recuperáveis. Consulte
+[WAGERING.md](WAGERING.md) para o fluxo completo dos casos de uso.
+
 MikroORM 6.6, PostgreSQL 17 e Bun. O domínio continua sem dependências de
 infraestrutura. `EntitySchema` mapeia snapshots próprios; os adapters chamam
 exclusivamente `rehydrate` para reconstruir agregados, sem executar transições.
@@ -151,12 +155,14 @@ trabalho, evitando sobrescrever dados com snapshots destacados. Depois do
 callback, os repositórios ficam inválidos; recarregue agregados em nova transação.
 
 `add` sempre insere; não faz upsert nem ignora conflitos. Chaves ainda inexistentes
-não têm row lock: a constraint única arbitra duas inserções concorrentes. Em um
-conflito `23505`, deixe a transação fazer rollback e consulte o registro numa nova
-unidade de trabalho. Compare identidade/hash com `assertIdempotentReplay` ou
-`assertSameDelivery` antes de retornar replay. O índice
-`wagers_processed_reversal_unique` identifica `ALREADY_REVERSED`. O adapter não
-converte indiscriminadamente violações de integridade em rejeições de negócio.
+não têm row lock: a constraint única arbitra duas inserções concorrentes. A Fase 3
+adiciona advisory locks por identidade antes da consulta; as constraints continuam
+protegendo acessos diretos. Após rollback, conflitos `23505` das constraints de
+identidade/reversão são classificados como `RetryableTransactionError`, com o erro
+SQL em `cause`. `ProcessWager` tenta novamente em outra unidade de trabalho e
+compara identidade/hash antes de retornar replay ou conflito. Reversões já
+processadas geram `ALREADY_REVERSED` sob o lock da wallet. O adapter não converte
+indiscriminadamente violações de integridade em rejeições de negócio.
 
 Evite abrir outra `UnitOfWork.run` dentro do callback: ela é uma transação
 independente. Passe os mesmos repositórios às operações que precisam de atomicidade.
@@ -165,7 +171,9 @@ primeiro reclamam lotes de transações podem disputar locks com requisições; 
 use case deve tratar deadlocks (`40P01`) e falhas de serialização (`40001`) com
 retry limitado da operação inteira. Não existe retry automático do callback,
 pois ele pode conter efeitos externos. Escopo transacional curto e limites de
-tempo de acesso ao banco devem ser definidos no deployment.
+tempo de acesso ao banco devem ser definidos no deployment. A Fase 3 define
+`lock_timeout` local de 5 segundos e concentra o retry limitado em `ProcessWager`,
+cujo callback não possui efeitos externos.
 
 ## NestJS
 

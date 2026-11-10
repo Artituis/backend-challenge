@@ -1,4 +1,8 @@
-# Camada de domínio
+# Arquitetura — domínio, persistência e aplicação
+
+A Fase 3 implementa os cinco casos de uso, idempotência persistente com resposta
+original, concorrência por wallet e commit atômico. O desenho, exemplos e testes
+estão em [WAGERING.md](WAGERING.md).
 
 O domínio puro fica em `src/domain`, com testes em `tests/domain`. Essa camada
 não contém NestJS, ORM, decorators, I/O, geração de IDs ou relógio global.
@@ -146,8 +150,8 @@ ausente e sua política de TTL pertencem ao futuro worker de transações, não 
 
 Uma entidade isolada não consegue impedir que outro processo crie uma wallet ou
 aplique o mesmo evento. A Fase 2 implementa as constraints, triggers, locks e a
-unidade de trabalho abaixo. Os use cases de processamento e a integração com
-mensageria continuam necessários para completar o fluxo distribuído:
+unidade de trabalho abaixo. A Fase 3 conecta esses mecanismos nos casos de uso;
+a integração de transporte e os workers de mensageria ficam para as próximas fases:
 
 | Garantia | Mecanismo exigido no PostgreSQL / aplicação |
 | --- | --- |
@@ -181,8 +185,10 @@ observado, precisa ser persistida pelo use case para replay estável.
 - `INVALID_STATE`, `INVALID_LEDGER`: transição indevida ou integridade violada.
 - `PERMANENT_INFRASTRUCTURE_FAILURE`: falha permanente auditável.
 
-`ALREADY_REVERSED` está reservado para a tradução da constraint pelo adapter.
-Não há queries nem catálogo global em memória nesta camada.
+`ALREADY_REVERSED` é produzido pela aplicação após consultar reversões sob o
+lock da wallet. A constraint única continua como defesa; uma corrida detectada
+no banco provoca rollback e retry, que refaz essa consulta. Não há queries nem
+catálogo global em memória no domínio.
 
 Os testes unitários usam Bun e datas explícitas, sem serviços externos. Cobrem
 precisão, normalização, rejeição de arredondamento, invariantes de saldo/versão,

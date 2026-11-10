@@ -1,10 +1,12 @@
 import { LockMode, QueryOrder, raw } from '@mikro-orm/core';
+import { createHash } from 'node:crypto';
 import type { FilterQuery } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { WagerTransactionStatus } from '../../domain';
-import type { InboxMessage, OutboxMessage, WagerTransaction, Wallet, WalletLedgerEntry } from '../../domain';
+import type { InboxMessage, OutboxMessage, WagerTransaction, WagerTransactionKind, Wallet, WalletLedgerEntry } from '../../domain';
+import type { WagerResult } from '../../application/wagering/contracts';
 import type { InboxRepository, OutboxRepository, WagerTransactionRepository, WalletLedgerRepository, WalletRepository } from '../../application/ports/persistence';
-import { InboxRow, OutboxRow, WagerTransactionRow, WalletLedgerRow, WalletRow } from './entities';
+import { InboxRow, OutboxRow, WagerResultRow, WagerTransactionRow, WalletLedgerRow, WalletRow } from './entities';
 import { inboxMapper, ledgerMapper, outboxMapper, transactionMapper, walletMapper } from './mappers';
 
 export class TransactionScope {
@@ -81,12 +83,51 @@ export class MikroWagerTransactionRepository extends TrackedRepository<WagerTran
   findByExternalId(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined> {
     return this.findLocked({ providerId, externalTransactionId });
   }
+  async findReference(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined> {
+    this.scope.assertActive();
+    const row = await this.scope.em.findOne(WagerTransactionRow, { providerId, externalTransactionId });
+    // Processed references are immutable in SQL. Never save this detached snapshot.
+    return row === null ? undefined : transactionMapper.toDomain(row);
+  }
+  async hasProcessedReversal(referenceTransactionId: string, kind: WagerTransactionKind): Promise<boolean> {
+    this.scope.assertActive();
+    return await this.scope.em.count(WagerTransactionRow, {
+      referenceTransactionId, kind, status: WagerTransactionStatus.Processed,
+    }) > 0;
+  }
   async findPendingReferences(providerId: string, externalId: string, limit: number): Promise<WagerTransaction[]> {
     this.scope.assertActive(); batchSize(limit);
     const rows = await this.scope.em.find(WagerTransactionRow, {
       providerId, referenceExternalTransactionId: externalId, status: WagerTransactionStatus.PendingReference,
     }, { limit, orderBy: { createdAt: QueryOrder.ASC, id: QueryOrder.ASC }, lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE });
     return rows.map(row => this.restore(row));
+  }
+}
+
+export class MikroIdentityLocks {
+  private acquired = false;
+  constructor(private readonly scope: TransactionScope) {}
+  async lock(keys: readonly string[]): Promise<void> {
+    this.scope.assertActive();
+    if (this.acquired) throw new Error('Acquire all identity locks once, before reading rows');
+    this.acquired = true;
+    // Sort the actual signed 64-bit lock IDs, not their unhashed names. A hash collision
+    // only serializes unrelated requests; uniqueness still compares the original strings.
+    const ids = [...new Set(keys.map(key => createHash('sha256').update(key, 'utf8').digest().readBigInt64BE().toString()))].sort();
+    for (const id of ids) await this.scope.em.execute('select pg_advisory_xact_lock(?::bigint)', [id]);
+  }
+}
+
+export class MikroWagerResultRepository {
+  constructor(private readonly scope: TransactionScope) {}
+  async find(transactionId: string): Promise<WagerResult | undefined> {
+    this.scope.assertActive();
+    const row = await this.scope.em.findOne(WagerResultRow, { transactionId });
+    return row === null ? undefined : structuredClone(row.result);
+  }
+  add(result: WagerResult): void {
+    this.scope.assertActive();
+    this.scope.em.persist(Object.assign(new WagerResultRow(), { transactionId: result.transactionId, result: structuredClone(result) }));
   }
 }
 export class MikroWalletLedgerRepository implements WalletLedgerRepository {

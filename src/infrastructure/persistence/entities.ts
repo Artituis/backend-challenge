@@ -1,6 +1,12 @@
 import { BigIntType, EntitySchema } from '@mikro-orm/core';
 import type { FailureCode, JsonObject, LedgerDirection, WagerTransactionKind, WagerTransactionStatus } from '../../domain';
 import { DecimalStringType } from './decimal-string.type';
+import type { WagerResult } from '../../application/wagering/contracts';
+
+export class WagerResultRow {
+  transactionId!: string;
+  result!: WagerResult;
+}
 
 export class WalletRow {
   id!: string;
@@ -117,4 +123,10 @@ export const OutboxSchema = new EntitySchema<OutboxRow>({
     nextAttemptAt: { ...timestamp, nullable: true }, publishedAt: { ...timestamp, nullable: true },
   },
 });
-export const persistenceEntities = [WalletSchema, WagerTransactionSchema, WalletLedgerSchema, InboxSchema, OutboxSchema];
+export const WagerResultSchema = new EntitySchema<WagerResultRow>({
+  class: WagerResultRow, tableName: 'wager_results',
+  properties: {
+    transactionId: { ...text, primary: true }, result: { type: 'json', columnType: 'jsonb' },
+  },
+});
+export const persistenceEntities = [WalletSchema, WagerTransactionSchema, WalletLedgerSchema, InboxSchema, OutboxSchema, WagerResultSchema];

@@ -1,6 +1,8 @@
 import type { InboxMessage, OutboxMessage, WagerTransaction, Wallet, WalletLedgerEntry } from '../../domain';
+import type { WagerTransactionKind } from '../../domain';
+import type { WagerResult } from '../wagering/contracts';
 
-/** Repositories live only inside the UnitOfWork callback. Reads acquire row locks. */
+/** Repositories live only inside the UnitOfWork callback. Mutable aggregate reads acquire row locks. */
 export interface WalletRepository {
   findById(id: string): Promise<Wallet | undefined>;
   findByPlayer(playerId: string, currency: string): Promise<Wallet | undefined>;
@@ -12,6 +14,10 @@ export interface WagerTransactionRepository {
   findById(id: string): Promise<WagerTransaction | undefined>;
   findByIdempotencyKey(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   findByExternalId(providerId: string, externalId: string): Promise<WagerTransaction | undefined>;
+  /** Read-only snapshot: reference validation must not lock another wallet's transactions. */
+  findReference(providerId: string, externalId: string): Promise<WagerTransaction | undefined>;
+  /** Caller must hold the target wallet lock. */
+  hasProcessedReversal(referenceId: string, kind: WagerTransactionKind): Promise<boolean>;
   findPendingReferences(providerId: string, externalId: string, limit: number): Promise<WagerTransaction[]>;
   add(transaction: WagerTransaction): void;
   save(transaction: WagerTransaction): void;
@@ -34,6 +40,12 @@ export interface OutboxRepository {
   save(message: OutboxMessage): void;
 }
 export interface Repositories {
+  /** Acquire once, before row reads. Protects identities even when rows do not yet exist. */
+  readonly identities: { lock(keys: readonly string[]): Promise<void> };
+  readonly results: {
+    find(transactionId: string): Promise<WagerResult | undefined>;
+    add(result: WagerResult): void;
+  };
   readonly wallets: WalletRepository;
   readonly transactions: WagerTransactionRepository;
   readonly ledger: WalletLedgerRepository;

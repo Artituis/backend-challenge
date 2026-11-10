@@ -208,7 +208,7 @@ suite('PostgreSQL persistence (real migrations, no schema generator)', () => {
     await uow.run(async r => { r.transactions.add(original); });
     await expect(uow.run(async r => {
       r.transactions.add(transaction(wallet, WagerTransactionKind.Bet, '25.00', { externalTransactionId: original.externalTransactionId }));
-    })).rejects.toMatchObject({ code: '23505', constraint: 'wagers_provider_external_unique' });
+    })).rejects.toMatchObject({ cause: { code: '23505', constraint: 'wagers_provider_external_unique' } });
     await uow.run(async r => {
       r.transactions.add(transaction(wallet, WagerTransactionKind.Bet, '25.00', {
         providerId: 'another-provider', externalTransactionId: original.externalTransactionId, idempotencyKey: original.idempotencyKey,
