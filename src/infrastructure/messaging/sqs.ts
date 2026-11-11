@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { SQSClient, GetQueueUrlCommand, ReceiveMessageCommand, DeleteMessageCommand,
-  ChangeMessageVisibilityCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
+  ChangeMessageVisibilityCommand, SendMessageCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import type { OutboxMessage } from '../../domain';
 import type { MessagingConfig } from './config';
 
@@ -38,6 +38,14 @@ export class SqsMessaging implements QueueTransport {
     const url = this.urls.get(name);
     if (!url) throw new Error(`Queue not initialized: ${name}`);
     return url;
+  }
+  /** Active, non-destructive check of every required queue; URL cache is never a health signal. */
+  async probe(signal: AbortSignal): Promise<void> {
+    await Promise.all([this.config.queueName, this.config.dlqName, this.config.eventsQueueName].map(async name => {
+      const { QueueUrl } = await this.client.send(new GetQueueUrlCommand({ QueueName: name }), { abortSignal: signal });
+      if (!QueueUrl) throw new Error('Queue unavailable');
+      await this.client.send(new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ['QueueArn'] }), { abortSignal: signal });
+    }));
   }
   private timeout(): { abortSignal: AbortSignal } {
     return { abortSignal: AbortSignal.timeout(this.config.requestTimeoutMs) };

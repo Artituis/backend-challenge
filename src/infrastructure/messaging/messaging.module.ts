@@ -16,6 +16,7 @@ import { SqsMessaging } from './sqs';
 import { OutboxWorker } from './outbox-worker';
 import { PendingReferenceWorker } from './pending-reference-worker';
 import { WorkerLoop } from './loop';
+import { WorkerOperationsModule } from '../http/http.module';
 
 const CONFIG = Symbol('MESSAGING_CONFIG');
 class WorkerLifecycle implements OnApplicationBootstrap, BeforeApplicationShutdown, OnApplicationShutdown {
@@ -41,7 +42,7 @@ class WorkerLifecycle implements OnApplicationBootstrap, BeforeApplicationShutdo
 
 export class MessagingModule {}
 Module({
-  imports: [WageringModule, PersistenceModule],
+  imports: [WageringModule, PersistenceModule, WorkerOperationsModule],
   providers: [
     { provide: CONFIG, useFactory: messagingConfig },
     { provide: SqsMessaging, inject: [CONFIG], useFactory: (config: MessagingConfig) => new SqsMessaging(config) },

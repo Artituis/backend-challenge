@@ -32,7 +32,8 @@ export class TestEnvironment {
   readonly runtime = new SystemRuntime();
   readonly config = { ...messagingConfig({}), endpoint: process.env['TEST_SQS_ENDPOINT']!,
     queueName: `${this.schema}.fifo`, dlqName: `${this.schema}-dlq.fifo`, eventsQueueName: `${this.schema}-events.fifo`,
-    pollSeconds: 1, idleMs: 10, visibilitySeconds: 3, requestTimeoutMs: 500 };
+    // Network allowance must tolerate Docker scheduling after a one-second empty long poll.
+    pollSeconds: 1, idleMs: 10, visibilitySeconds: 3, requestTimeoutMs: 2000 };
   readonly sqs = new SqsMessaging(this.config);
   admin!: MikroORM;
   orm!: MikroORM;
@@ -60,6 +61,7 @@ export class TestEnvironment {
 
   childEnv(): NodeJS.ProcessEnv {
     return { ...process.env, DATABASE_URL: this.database, TEST_SCHEMA: this.schema, PGOPTIONS: `-c search_path=${this.schema}`,
+      WORKER_HEALTH_PORT: '0',
       SQS_ENDPOINT: this.config.endpoint, SQS_QUEUE_NAME: this.config.queueName,
       SQS_DLQ_NAME: this.config.dlqName, SQS_EVENTS_QUEUE_NAME: this.config.eventsQueueName,
       SQS_POLL_SECONDS: '1', WORKER_IDLE_MS: '10' };
@@ -119,7 +121,7 @@ export class TestEnvironment {
 
   async receive(queue = this.config.queueName) {
     for (let attempt = 0; attempt < 10; attempt++) {
-      const message = await this.sqs.receive(queue, AbortSignal.timeout(3000));
+      const message = await this.sqs.receive(queue, AbortSignal.timeout(5000));
       if (message) return message;
     }
     throw new Error(`No delivery from ${queue}`);

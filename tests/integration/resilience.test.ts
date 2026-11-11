@@ -47,7 +47,7 @@ suite('Real process death, independent publishers and reference recovery', () =>
         const event = await env.receive(env.config.eventsQueueName);
         const payload = JSON.parse(event.body) as { eventId: string; correlationId: string };
         eventIds.add(payload.eventId);
-        expect(payload.correlationId).toBe((await env.processor.execute(input)).transactionId);
+        expect(payload.correlationId).toBe(messageId);
         await env.sqs.ack(env.config.eventsQueueName, event);
       }
       expect(eventIds.size).toBe(2);

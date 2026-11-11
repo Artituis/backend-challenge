@@ -1,4 +1,4 @@
-# Fase 5 — integração, concorrência e recuperação
+# Testes — integração, concorrência, recuperação e observabilidade
 
 ## Execução
 
@@ -6,6 +6,7 @@ Pré-requisitos: Docker Desktop/Engine com Compose v2 e Bun. Execute na raiz:
 
 ```sh
 bun run test:integration
+bun run test:concurrency
 bun run test:load
 ```
 
@@ -33,12 +34,15 @@ bun run test:unit
 ```
 
 `bun test` continua disponível para desenvolvimento: sem variáveis de infraestrutura,
-ignora as suítes de integração. Para validar a Fase 5 use `test:integration`.
+ignora as suítes de integração. Para validar o sistema completo use `test:integration`.
+`test:concurrency` executa especificamente wagering e resilience com a mesma infraestrutura.
 
 ## Cobertura e evidência
 
 | Arquivo | Cenários |
 | --- | --- |
+| `tests/observability/telemetry.test.ts` | Privacidade dos logs, isolamento assíncrono, métricas cumulativas, readiness com timeout e contagem somente após commit |
+| `tests/integration/http.test.ts` | API real com PostgreSQL/SQS: abertura, replay, conflito, paginação, reconciliação, propagação de IDs e fila removida/recriada no readiness |
 | `tests/integration/persistence.test.ts` | Todas as migrations up/down até zero/up; ausência de tabelas residuais; constraints SQL por código/nome; unicidade player/moeda; atomicidade Wallet/Wager/Ledger/Inbox/Outbox; histórico imutável; SKIP LOCKED |
 | `tests/integration/wagering.test.ts` | Duas BETs de 80 sobre 100; 50 cópias da mesma aposta; 20 wallets × 5 débitos; três pools independentes; disputa de referências; resposta original imutável; rollback na confirmação; falha real de INSERT da Outbox |
 | `tests/integration/messaging.test.ts` | Redelivery do mesmo MessageId; dedup persistente da Inbox; FIFO; DLQ e redrive nativo; fila de eventos removida/recriada; backoff da publicação; shutdown Nest |
@@ -76,11 +80,10 @@ de reinício do **serviço**, sem reiniciar o PostgreSQL que atende outras suít
 throughput de submissão e de conclusão incluindo drenagem, taxa de erro, p50/p95/p99
 HTTP, envio SQS e commit SQS observado, espera por locks e atraso da Outbox.
 
-Ainda não há controllers HTTP de produção neste repositório. O script abre um
-endpoint HTTP local `POST /wagers` com Bun e resolve `ProcessWager` pelo verdadeiro
-`WageringModule` do Nest. Ele mede rede HTTP + caso de uso + PostgreSQL, além do canal
-SQS + ConsumerWorker + PostgreSQL. Não mede autenticação, gateway, TLS ou controllers
-de uma API futura. O adaptador existe apenas durante a carga.
+O script usa o mesmo handler HTTP da aplicação, `POST /wagering/transactions`,
+incluindo header de idempotência, logs e métricas, e resolve `ProcessWager` pelo
+`WageringModule` do Nest. Mede HTTP + caso de uso + PostgreSQL e SQS + ConsumerWorker
++ PostgreSQL. O listener é temporário; identidade continua no-op, sem gateway/TLS.
 
 Parâmetros (variáveis de ambiente):
 

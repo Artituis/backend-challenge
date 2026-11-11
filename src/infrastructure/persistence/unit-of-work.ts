@@ -2,6 +2,7 @@ import { IsolationLevel } from '@mikro-orm/core';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import type { Repositories, UnitOfWork } from '../../application/ports/persistence';
 import { RetryableTransactionError } from '../../application/wagering/contracts';
+import { logger, metrics } from '../observability/telemetry';
 import { MikroInboxRepository, MikroOutboxRepository, MikroWagerTransactionRepository,
   MikroWalletLedgerRepository, MikroWalletRepository, MikroIdentityLocks, MikroWagerResultRepository, MikroPendingReferences, TransactionScope } from './repositories';
 
@@ -34,7 +35,11 @@ export class MikroUnitOfWork implements UnitOfWork {
       }, { isolationLevel: IsolationLevel.READ_COMMITTED });
     } catch (error) {
       // transactional() has already rolled back, including flush/deferred-commit failures.
-      if (retryable(error)) throw new RetryableTransactionError(error);
+      if (retryable(error)) {
+        if (error instanceof Error && 'code' in error && error.code === '23505') metrics.increment('idempotency_retries');
+        else { metrics.increment('lock_conflicts'); logger.event('lock_conflict', {}, 'warn'); }
+        throw new RetryableTransactionError(error);
+      }
       throw error;
     }
   }

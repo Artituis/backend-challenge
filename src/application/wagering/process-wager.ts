@@ -2,6 +2,8 @@ import { DomainError, FailureCode, InboxMessage, LedgerDirection, Money, OutboxM
   WagerTransaction, WagerTransactionKind, WagerTransactionStatus } from '../../domain';
 import type { CreateWagerTransactionProps, JsonObject, Wallet, WalletLedgerEntry } from '../../domain';
 import type { Repositories, UnitOfWork } from '../ports/persistence';
+import { silentObserver } from '../ports/telemetry';
+import type { WagerObserver } from '../ports/telemetry';
 import { RetryableTransactionError } from './contracts';
 import type { ApplicationRuntime, WagerCommand, WagerResponse, WagerResult } from './contracts';
 
@@ -12,11 +14,13 @@ const businessFailures = new Set([
 
 /** No network calls, publishing or queue ack inside this transaction/retry boundary. */
 export class ProcessWager {
-  constructor(private readonly uow: UnitOfWork, private readonly runtime: ApplicationRuntime) {}
+  constructor(private readonly uow: UnitOfWork, private readonly runtime: ApplicationRuntime,
+    private readonly observer: WagerObserver = silentObserver) {}
 
   /** Background retry shares the financial rules, but never replaces the submission response. */
   async reprocessNextPending(policy: { ttlMs: number; baseDelayMs: number; maxDelayMs: number }): Promise<boolean> {
-    return this.uow.run(async r => {
+    let committed: { result: WagerResponse; walletId: string; providerId: string; correlationId?: string; messageId?: string } | undefined;
+    const worked = await this.uow.run(async r => {
       const now = this.runtime.now();
       const job = await r.pendingReferences.claim(now);
       if (!job) return false;
@@ -44,13 +48,20 @@ export class ProcessWager {
       r.transactions.save(tx);
       if (entry) r.wallets.save(wallet);
       this.enqueue(r, tx, { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(),
-        walletVersion: wallet.version, failureCode: tx.failureCode ?? null }, entry, at);
+        walletVersion: wallet.version, failureCode: tx.failureCode ?? null }, entry, at, job.correlationId ?? tx.id, job.messageId);
+      committed = { result: { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(),
+        walletVersion: wallet.version, failureCode: tx.failureCode ?? null, idempotentReplay: false },
+        walletId: tx.walletId, providerId: tx.providerId, correlationId: job.correlationId ?? tx.id,
+        ...(job.messageId ? { messageId: job.messageId } : {}) };
       await r.pendingReferences.complete(tx.id);
       return true;
     });
+    if (committed) this.observer.committed(committed.result, committed);
+    return worked;
   }
 
   async execute(command: WagerCommand): Promise<WagerResponse> {
+    const correlationId = command.correlationId;
     // Project and normalize once, before awaiting; callers cannot mutate an in-flight request.
     const input: CreateWagerTransactionProps = {
       id: this.runtime.id(), providerId: command.providerId, externalTransactionId: command.externalTransactionId,
@@ -74,7 +85,7 @@ export class ProcessWager {
 
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.uow.run(async r => {
+        const response = await this.uow.run(async r => {
           await r.identities.lock(keys);
           const inbox = delivery === undefined ? undefined : await r.inbox.find(delivery.consumerName, delivery.messageId);
           if (delivery) inbox?.assertSameDelivery(delivery);
@@ -109,12 +120,15 @@ export class ProcessWager {
           const result: WagerResult = { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(),
             walletVersion: wallet.version, failureCode: tx.failureCode ?? null };
           r.results.add(result);
-          this.enqueue(r, tx, result, entry, at);
+          this.enqueue(r, tx, result, entry, at, correlationId, delivery?.messageId);
           this.finishInbox(r, delivery, inbox, at);
           return { ...result, idempotentReplay: false };
         }); // Promise resolves only after flush, deferred constraints and COMMIT.
+        this.observer.committed(response, { walletId: props.walletId, providerId: props.providerId });
+        return response;
       } catch (error) {
         if (!(error instanceof RetryableTransactionError) || attempt >= 3) throw error;
+        this.observer.retry();
         await this.runtime.pause(25 * 2 ** attempt + Math.floor(this.runtime.random() * 25));
       }
     }
@@ -160,11 +174,13 @@ export class ProcessWager {
     if (existing) r.inbox.save(message); else r.inbox.add(message);
   }
 
-  private enqueue(r: Repositories, tx: WagerTransaction, result: WagerResult, entry: WalletLedgerEntry | undefined, at: Date): void {
+  private enqueue(r: Repositories, tx: WagerTransaction, result: WagerResult, entry: WalletLedgerEntry | undefined, at: Date,
+    correlationId = tx.id, messageId?: string): void {
     const add = (eventType: string, data: JsonObject): void => {
       const eventId = this.runtime.id();
       r.outbox.add(OutboxMessage.enqueue({ id: eventId, aggregateId: tx.walletId, eventType, occurredAt: at,
-        payload: { eventId, eventType, version: 1, aggregateId: tx.walletId, correlationId: tx.id,
+        payload: { eventId, eventType, version: 1, aggregateId: tx.walletId, correlationId,
+          ...(messageId ? { messageId } : {}), providerId: tx.providerId, transactionId: tx.id,
           causationId: tx.externalTransactionId, occurredAt: at.toISOString(), data } }));
     };
     const eventType = tx.status === WagerTransactionStatus.Processed ? 'WagerTransactionProcessed'

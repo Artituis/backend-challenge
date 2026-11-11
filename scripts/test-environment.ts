@@ -1,8 +1,9 @@
 import { mkdir } from 'node:fs/promises';
 
 const mode = process.argv[2] ?? 'integration';
-if (!['integration', 'load'].includes(mode)) throw new Error('Expected integration or load');
-const target = mode === 'load' ? ['scripts/load.ts'] : ['scripts/integration.ts'];
+if (!['integration', 'concurrency', 'load'].includes(mode)) throw new Error('Expected integration, concurrency or load');
+const target = mode === 'load' ? ['scripts/load.ts'] : mode === 'concurrency'
+  ? ['scripts/integration.ts', 'tests/integration/wagering.test.ts', 'tests/integration/resilience.test.ts'] : ['scripts/integration.ts'];
 const database = process.env['TEST_DATABASE_URL'];
 const sqs = process.env['TEST_SQS_ENDPOINT'];
 if (Boolean(database) !== Boolean(sqs)) throw new Error('Set both TEST_DATABASE_URL and TEST_SQS_ENDPOINT, or neither');

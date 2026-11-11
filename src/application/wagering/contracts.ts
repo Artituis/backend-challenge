@@ -3,6 +3,7 @@ import type { FailureCode, WagerTransactionKind, WagerTransactionStatus } from '
 export type WagerKind = Exclude<WagerTransactionKind, WagerTransactionKind.Opening>;
 
 export interface WagerCommand {
+  readonly correlationId?: string;
   readonly providerId: string;
   readonly externalTransactionId: string;
   readonly idempotencyKey: string;

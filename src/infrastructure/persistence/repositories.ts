@@ -106,12 +106,19 @@ export class MikroWagerTransactionRepository extends TrackedRepository<WagerTran
 
 export class MikroPendingReferences {
   constructor(private readonly scope: TransactionScope) {}
-  async claim(now: Date): Promise<{ transactionId: string; attempts: number } | undefined> {
+  async claim(now: Date): Promise<{ transactionId: string; attempts: number; correlationId?: string; messageId?: string } | undefined> {
     this.scope.assertActive();
     const rows = await this.scope.em.execute<{ transactionId: string; attempts: number }[]>(`
       select transaction_id as "transactionId", attempts from pending_reference_jobs
       where next_attempt_at <= ? order by next_attempt_at, transaction_id limit 1 for update skip locked`, [now]);
-    return rows[0];
+    const job = rows[0];
+    if (!job) return undefined;
+    const [context] = await this.scope.em.execute<{ correlationId: string | null; messageId: string | null }[]>(`
+      select payload->>'correlationId' as "correlationId", payload->>'messageId' as "messageId"
+      from outbox_messages where event_type = 'WagerTransactionPendingReference'
+        and payload->>'transactionId' = ? order by occurred_at limit 1`, [job.transactionId]);
+    return { ...job, ...(context?.correlationId ? { correlationId: context.correlationId } : {}),
+      ...(context?.messageId ? { messageId: context.messageId } : {}) };
   }
   async retry(transactionId: string, nextAttemptAt: Date): Promise<void> {
     this.scope.assertActive();

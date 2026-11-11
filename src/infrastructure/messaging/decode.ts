@@ -1,5 +1,6 @@
 import { DomainError, FailureCode, WagerTransactionKind } from '../../domain';
 import type { WagerCommand, WagerKind } from '../../application/wagering/contracts';
+import { safeId } from '../observability/telemetry';
 
 export class InvalidEnvelopeError extends Error {}
 export function decodeWager(body: string, consumerName: string, messageId: string): WagerCommand {
@@ -21,6 +22,7 @@ export function decodeWager(body: string, consumerName: string, messageId: strin
   }
   const money = object(input['money']);
   return { providerId: string(input, 'providerId'), externalTransactionId: string(input, 'externalTransactionId'),
+    correlationId: safeId(input['correlationId']) ?? messageId,
     idempotencyKey: string(input, 'idempotencyKey'), walletId: string(input, 'walletId'), playerId: string(input, 'playerId'),
     roundId: string(input, 'roundId'), gameId: string(input, 'gameId'), kind: kind as WagerKind,
     money: { amount: string(money, 'amount'), currency: string(money, 'currency') },

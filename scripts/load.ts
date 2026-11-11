@@ -11,7 +11,10 @@ import { ConsumerWorker } from '../src/infrastructure/messaging/consumer-worker'
 import { MikroDispositionStore } from '../src/infrastructure/messaging/dispositions';
 import { OutboxWorker } from '../src/infrastructure/messaging/outbox-worker';
 import { WorkerLoop } from '../src/infrastructure/messaging/loop';
-import { decodeWager } from '../src/infrastructure/messaging/decode';
+import { Api } from '../src/infrastructure/http/api';
+import { NoopProviderIdentity } from '../src/infrastructure/http/identity';
+import { httpHandler } from '../src/infrastructure/http/server';
+import { HealthService } from '../src/infrastructure/health/health.module';
 
 function integer(name: string, fallback: number, max: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -37,17 +40,10 @@ process.env['DATABASE_URL'] = env.database;
 process.env['PGOPTIONS'] = `-c search_path=${env.schema}`;
 const app = await NestFactory.createApplicationContext(WageringModule, { logger: false });
 const processor = app.get(ProcessWager);
-// This is an HTTP benchmark adapter, not the production API (auth/controllers are a later phase).
-const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
-  if (request.method !== 'POST' || new URL(request.url).pathname !== '/wagers') return new Response(null, { status: 404 });
-  try {
-    const { delivery, ...command } = decodeWager(await request.text(), 'http-load', crypto.randomUUID());
-    void delivery;
-    return Response.json(await processor.execute(command));
-  } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-} });
+const health = new HealthService(() => env.orm.em.getConnection().getKnex().raw('select 1').timeout(2000, { cancel: true }),
+  signal => env.sqs.probe(signal));
+const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: httpHandler(health,
+  new Api(env.orm, env.uow, processor, new NoopProviderIdentity())) });
 const consumer = new ConsumerWorker(env.sqs, new MikroDispositionStore(env.orm), processor,
   { ...env.config, consumerConcurrency: Math.min(concurrency, 32) });
 const publishers = Array.from({ length: 4 }, (_, i) => {
@@ -112,8 +108,9 @@ try {
       const start = performance.now();
       try {
         if (sequence % 2 === 0) {
-          const response = await fetch(new URL('/wagers', server.url), { method: 'POST',
-            headers: { 'content-type': 'application/json' }, body: JSON.stringify(command), signal: AbortSignal.timeout(30_000) });
+          const response = await fetch(new URL('/wagering/transactions', server.url), { method: 'POST',
+            headers: { 'content-type': 'application/json', 'idempotency-key': command.idempotencyKey },
+            body: JSON.stringify(command), signal: AbortSignal.timeout(30_000) });
           const result = await response.json() as WagerResponse;
           if (!response.ok || result.status !== 'PROCESSED' || result.idempotentReplay) throw new Error(`HTTP failure: ${JSON.stringify(result)}`);
           httpMs.push(performance.now() - start);
@@ -163,7 +160,7 @@ finally {
   const report = {
     generatedAt: new Date().toISOString(), passed: invariant && outcome === undefined,
     environment: { bun: Bun.version, os: platform(), arch: arch(), cpus: cpus().length, memoryBytes: totalmem(),
-      postgres: db?.version, sqs: 'LocalStack 4.10.0 (Docker Compose default)', http: 'Bun benchmark adapter -> real Nest WageringModule' },
+      postgres: db?.version, sqs: 'LocalStack 4.10.0 (Docker Compose default)', http: 'Bun production HTTP handler -> Nest WageringModule' },
     methodology: { durationSeconds: duration, concurrency, walletCount, maxRequests, hotWalletShare: 0.5,
       httpShare: 0.5, publishers: 4, consumerConcurrency: Math.min(concurrency, 32), sampleIntervalMs: 100,
       latencyUnit: 'ms', sqsCompletion: 'observed database commit, includes polling delay',

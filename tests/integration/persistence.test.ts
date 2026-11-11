@@ -31,7 +31,7 @@ suite('PostgreSQL persistence (real migrations, no schema generator)', () => {
     orm = await MikroORM.init({ ...persistenceConfig(url), schema,
       driverOptions: { connection: { options: `-c search_path=${schema}` } } });
     await orm.getMigrator().up();
-    expect(await orm.getMigrator().getExecutedMigrations()).toHaveLength(3);
+    expect(await orm.getMigrator().getExecutedMigrations()).toHaveLength(4);
     await orm.getMigrator().down({ to: 0 });
     expect(await orm.getMigrator().getExecutedMigrations()).toHaveLength(0);
     const tables = await orm.em.getConnection().execute<{ tablename: string }[]>(

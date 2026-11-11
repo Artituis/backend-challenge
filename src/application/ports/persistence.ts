@@ -42,7 +42,7 @@ export interface OutboxRepository {
 export interface Repositories {
   readonly pendingReferences: {
     /** Claim one scheduling row with SKIP LOCKED, until the UnitOfWork commits. */
-    claim(now: Date): Promise<{ transactionId: string; attempts: number } | undefined>;
+    claim(now: Date): Promise<{ transactionId: string; attempts: number; correlationId?: string; messageId?: string } | undefined>;
     retry(transactionId: string, nextAttemptAt: Date): Promise<void>;
     complete(transactionId: string): Promise<void>;
   };

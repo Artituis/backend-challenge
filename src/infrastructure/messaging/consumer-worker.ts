@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { bindTrace, logger, metrics, withTrace } from '../observability/telemetry';
 import type { ProcessWager } from '../../application/wagering/process-wager';
 import type { MessagingConfig } from './config';
 import type { DispositionStore } from './dispositions';
@@ -14,7 +14,6 @@ interface InFlight {
 }
 
 export class ConsumerWorker {
-  private readonly logger = new Logger(ConsumerWorker.name);
   private readonly active = new Set<InFlight>();
   private readonly loops: WorkerLoop[] = [];
   private stopping = false;
@@ -39,6 +38,28 @@ export class ConsumerWorker {
   }
 
   async handle(queue: string, message: Delivery): Promise<void> {
+    return withTrace({ correlationId: message.id, messageId: message.id }, async () => {
+      const started = performance.now();
+      try { await this.handleDelivery(queue, message); }
+      finally {
+        const durationMs = performance.now() - started;
+        metrics.observe('sqs_processing', durationMs / 1000);
+        logger.event('sqs_completed', { durationMs });
+      }
+    });
+  }
+
+  private async sendToDlq(message: Delivery, reason: string): Promise<void> {
+    await this.transport.deadLetter(message, reason);
+    metrics.increment('dlq_sent');
+    logger.event('sqs_dlq_sent', {}, 'warn');
+  }
+
+  private async handleDelivery(queue: string, message: Delivery): Promise<void> {
+    try {
+      const command = decodeWager(message.body, this.config.consumerName, message.id);
+      bindTrace({ correlationId: command.correlationId!, walletId: command.walletId, providerId: command.providerId });
+    } catch { /* Malformed deliveries retain only trusted transport identifiers. */ }
     let renewing: Promise<void> = Promise.resolve();
     let heartbeatStopped = false;
     const timer = setInterval(() => {
@@ -46,7 +67,7 @@ export class ConsumerWorker {
       // Serialize renewals, including completion of an in-flight renewal before retry/release.
       renewing = renewing.then(async () => {
         if (!heartbeatStopped) await this.transport.visibility(queue, message, this.config.visibilitySeconds);
-      }).catch(() => { this.logger.warn(`Visibility renewal failed messageId=${message.id}`); });
+      }).catch(() => { logger.event('visibility_failed', {}, 'warn'); });
     }, this.config.visibilitySeconds * 1000 / 3);
     const flight: InFlight = { queue, message, abandoned: false, stopHeartbeat: async () => {
       heartbeatStopped = true; clearInterval(timer); await renewing;
@@ -55,14 +76,20 @@ export class ConsumerWorker {
     try {
       if (queue === this.config.dlqName) {
         await this.dispositions.save(queue, message, 'QUARANTINED', 'DLQ_RECEIVED');
+        metrics.increment('dlq_received');
+        logger.event('sqs_quarantined', {}, 'warn');
       } else {
         const saved = await this.dispositions.find(queue, message);
         if (flight.abandoned) return;
         if (saved) {
-          if (saved.disposition === 'DEAD_LETTER' && !flight.abandoned) await this.transport.deadLetter(message, saved.reason);
+          metrics.increment('duplicates');
+          if (saved.disposition === 'DEAD_LETTER' && !flight.abandoned) await this.sendToDlq(message, saved.reason);
         } else {
           try {
-            await this.processor.execute(decodeWager(message.body, this.config.consumerName, message.id));
+            const command = decodeWager(message.body, this.config.consumerName, message.id);
+            bindTrace({ correlationId: command.correlationId!, walletId: command.walletId, providerId: command.providerId });
+            const result = await this.processor.execute(command);
+            bindTrace({ transactionId: result.transactionId });
           } catch (error) {
             const failure = classify(error);
             if (failure === 'transient' && message.receives < this.config.maxReceives) throw error;
@@ -70,7 +97,7 @@ export class ConsumerWorker {
             const failureReason = reason(error);
             // A failed/invalid command has no financial commit; commit its durable disposition instead.
             await this.dispositions.save(queue, message, outcome, failureReason);
-            if (outcome === 'DEAD_LETTER' && !flight.abandoned) await this.transport.deadLetter(message, failureReason);
+            if (outcome === 'DEAD_LETTER' && !flight.abandoned) await this.sendToDlq(message, failureReason);
           }
         }
       }
@@ -79,7 +106,8 @@ export class ConsumerWorker {
       if (!flight.abandoned) await this.transport.ack(queue, message);
     } catch (error) {
       await flight.stopHeartbeat();
-      this.logger.warn(`Delivery retry queue=${queue} messageId=${message.id} reason=${reason(error)}`);
+      metrics.increment('sqs_retries');
+      logger.event('sqs_retry', { attempt: message.receives }, 'warn');
       if (!flight.abandoned) {
         const seconds = Math.min(900, 2 ** Math.min(Math.max(0, message.receives - 1), 10) + Math.floor(Math.random() * 3));
         // If this fails, the existing visibility timeout still makes the delivery recoverable.
