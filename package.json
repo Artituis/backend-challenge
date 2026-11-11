@@ -7,8 +7,10 @@
     "sqs:provision": "bun src/infrastructure/messaging/provision.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "test:integration": "bun test tests/integration",
-    "typecheck": "tsc --noEmit",
+    "test:integration": "bun scripts/test-environment.ts integration",
+    "test:load": "bun scripts/test-environment.ts load",
+    "test:unit": "bun test tests/domain tests/application tests/messaging",
+    "typecheck": "bun node_modules/typescript/bin/tsc --noEmit",
     "db:migrate": "bun src/infrastructure/persistence/migrate.ts up",
     "db:rollback": "bun src/infrastructure/persistence/migrate.ts down",
     "db:pending": "bun src/infrastructure/persistence/migrate.ts pending"

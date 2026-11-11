@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { assertLedgerInvariant } from '../support/invariant';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { DeleteQueueCommand, GetQueueUrlCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Money, OutboxMessage, Wallet, WagerTransactionKind as Kind, WagerTransactionStatus as Status, FailureCode } from '../../src/domain';
@@ -10,7 +11,8 @@ import { MikroUnitOfWork } from '../../src/infrastructure/persistence/unit-of-wo
 import { SystemRuntime } from '../../src/infrastructure/system-runtime';
 import { messagingConfig } from '../../src/infrastructure/messaging/config';
 import { SqsMessaging } from '../../src/infrastructure/messaging/sqs';
-import type { Delivery, QueueTransport } from '../../src/infrastructure/messaging/sqs';
+import type { Delivery } from '../../src/infrastructure/messaging/sqs';
+import { decodeWager } from '../../src/infrastructure/messaging/decode';
 import { provisionQueues } from '../../src/infrastructure/messaging/provision';
 import { ConsumerWorker } from '../../src/infrastructure/messaging/consumer-worker';
 import { MikroDispositionStore } from '../../src/infrastructure/messaging/dispositions';
@@ -38,6 +40,8 @@ suite('PostgreSQL + LocalStack delivery and recovery', () => {
   let now = Date.now();
   runtime.now = () => new Date(now);
   const policy = { ttlMs: 10000, baseDelayMs: 100, maxDelayMs: 1000 };
+
+  afterEach(async () => { if (orm) await assertLedgerInvariant(orm); });
 
   beforeAll(async () => {
     if (!database || !new URL(database).pathname.endsWith('_test')) throw new Error('Requires _test database');
@@ -91,18 +95,12 @@ suite('PostgreSQL + LocalStack delivery and recovery', () => {
     }
     throw new Error('Expected delivery');
   }
-  const transportWith = (overrides: Partial<QueueTransport>): QueueTransport => ({
-    receive: (queue, signal) => sqs.receive(queue, signal), ack: (queue, message) => sqs.ack(queue, message),
-    visibility: (queue, message, seconds) => sqs.visibility(queue, message, seconds),
-    deadLetter: (message, reason) => sqs.deadLetter(message, reason), publish: message => sqs.publish(message), ...overrides,
-  });
-
   test('lost ack redelivers the same message; persistent inbox prevents a second debit', async () => {
     const value = await wallet(); const input = command(value);
     await send(JSON.stringify(input));
     const first = await receive();
-    const lostAck = new ConsumerWorker(transportWith({ ack: async () => { throw new Error('lost ack'); } }), store, processor, config);
-    await lostAck.handle(config.queueName, first);
+    // Commit the real delivery and deliberately omit DeleteMessage.
+    await processor.execute(decodeWager(first.body, config.consumerName, first.id));
     await sqs.visibility(config.queueName, first, 0);
     const again = await receive();
     expect(again.id).toBe(first.id);
@@ -185,20 +183,21 @@ suite('PostgreSQL + LocalStack delivery and recovery', () => {
     });
   });
 
-  test('outbox competing publishers exclude locked events and persist retry backoff', async () => {
+  test('real broker queue disappearance persists outbox backoff and recovery publishes', async () => {
     // Drain events left by preceding financial scenarios.
-    const published: string[] = [];
-    const transport = transportWith({ publish: async message => { published.push(message.id); } });
-    const worker = new OutboxWorker(uow, transport, runtime);
-    while (await worker.runOnce()) { /* drain */ }
+    const worker = new OutboxWorker(uow, sqs, runtime);
+    let drained = 0;
+    while (await worker.runOnce()) drained++;
+    for (let i = 0; i < drained; i++) {
+      const message = await receive(config.eventsQueueName);
+      await sqs.ack(config.eventsQueueName, message);
+    }
     const event = OutboxMessage.enqueue({ id: id(), aggregateId: 'test', eventType: 'Test', payload: { eventId: id() }, occurredAt: runtime.now() });
     await uow.run(async r => { r.outbox.add(event); });
-    let entered!: () => void; let release!: () => void;
-    const ready = new Promise<void>(resolve => { entered = resolve; });
-    const gate = new Promise<void>(resolve => { release = resolve; });
-    const held = new OutboxWorker(uow, transportWith({ publish: async () => { entered(); await gate; throw new Error('offline'); } }), runtime).runOnce();
-    await ready;
-    try { expect(await worker.runOnce()).toBe(false); } finally { release(); await held; }
+    const { QueueUrl } = await sqs.client.send(new GetQueueUrlCommand({ QueueName: config.eventsQueueName }));
+    await sqs.client.send(new DeleteQueueCommand({ QueueUrl: QueueUrl! }));
+    try { expect(await worker.runOnce()).toBe(true); }
+    finally { await provisionQueues(sqs.client, config); await sqs.initialize(); }
     await uow.run(async r => {
       const loaded = await r.outbox.findById(event.id);
       expect(loaded?.attempts).toBe(1);
@@ -208,8 +207,10 @@ suite('PostgreSQL + LocalStack delivery and recovery', () => {
     expect(await worker.runOnce()).toBe(false);
     now += 1000;
     await worker.runOnce();
-    expect(published.filter(value => value === event.id)).toHaveLength(1);
-  });
+    const delivered = await receive(config.eventsQueueName);
+    expect(JSON.parse(delivered.body)).toEqual(event.payload);
+    await sqs.ack(config.eventsQueueName, delivered);
+  }, 30_000);
 
   test('publish then SQL rollback recovers the event; stable SQS dedup ID suppresses immediate duplicate', async () => {
     const eventId = id();

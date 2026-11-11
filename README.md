@@ -1,7 +1,12 @@
 # Technical Challenge — Distributed Wagering Processor
 
-> **Implementação atual:** domínio, persistência, casos de uso e **Fase 4 — SQS,
-> inbox/outbox e workers resilientes**, com MikroORM/PostgreSQL e NestJS.
+> **Fase 5:** suítes de integração, concorrência e recuperação com containers reais,
+> incluindo SIGKILL/reinício do worker e carga HTTP/SQS. Execute
+> `bun run test:integration` e `bun run test:load`. Configuração, cenários e limites
+> das métricas em [`TESTING.md`](TESTING.md).
+
+> **Implementação atual:** domínio, persistência, casos de uso, SQS,
+> inbox/outbox, workers resilientes e testes da Fase 5, com MikroORM/PostgreSQL e NestJS.
 > Configuração e decisões em [`PERSISTENCE.md`](PERSISTENCE.md),
 > [`ARCHITECTURE.md`](ARCHITECTURE.md), [`WAGERING.md`](WAGERING.md) e [`MESSAGING.md`](MESSAGING.md).
 > Para iniciar banco, LocalStack, migrations e workers: `docker compose up --build -d worker`.

@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { assertLedgerInvariant } from '../support/invariant';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { NestFactory } from '@nestjs/core';
 import { FailureCode, InboxMessage, Money, OutboxMessage, WagerTransaction, WagerTransactionKind, Wallet } from '../../src/domain';
@@ -21,6 +22,8 @@ suite('PostgreSQL persistence (real migrations, no schema generator)', () => {
   let uow: MikroUnitOfWork;
   const schema = `persistence_test_${id().replaceAll('-', '')}`;
 
+  afterEach(async () => { if (orm) await assertLedgerInvariant(orm); });
+
   beforeAll(async () => {
     if (!url || !new URL(url).pathname.endsWith('_test')) throw new Error('TEST_DATABASE_URL must target a database ending in _test');
     admin = await MikroORM.init(persistenceConfig(url));
@@ -28,7 +31,12 @@ suite('PostgreSQL persistence (real migrations, no schema generator)', () => {
     orm = await MikroORM.init({ ...persistenceConfig(url), schema,
       driverOptions: { connection: { options: `-c search_path=${schema}` } } });
     await orm.getMigrator().up();
-    await orm.getMigrator().down();
+    expect(await orm.getMigrator().getExecutedMigrations()).toHaveLength(3);
+    await orm.getMigrator().down({ to: 0 });
+    expect(await orm.getMigrator().getExecutedMigrations()).toHaveLength(0);
+    const tables = await orm.em.getConnection().execute<{ tablename: string }[]>(
+      'select tablename from pg_tables where schemaname = ? and tablename <> ?', [schema, 'mikro_orm_migrations']);
+    expect(tables).toEqual([]);
     await orm.getMigrator().up();
     uow = new MikroUnitOfWork(orm);
   }, 30_000);
@@ -192,6 +200,19 @@ suite('PostgreSQL persistence (real migrations, no schema generator)', () => {
     }
     await expect(sql('update wallets set version = version + 1 where id = ?', [wallet.id])).rejects.toThrow();
     await expect(sql('update wallets set currency = ? where id = ?', ['USD', wallet.id])).rejects.toThrow();
+  });
+
+  test('SQL reports the exact uniqueness and nonnegative-balance constraints', async () => {
+    const wallet = await open();
+    await expect(sql(`insert into wallets (id, player_id, currency, balance, version, created_at, updated_at)
+      values (?, ?, 'BRL', 0, 1, ?, ?)`, [id(), wallet.playerId, at, at]))
+      .rejects.toMatchObject({ code: '23505', constraint: 'wallets_player_currency_unique' });
+    await expect(sql('update wallets set balance = -1, version = version + 1 where id = ?', [wallet.id]))
+      .rejects.toMatchObject({ code: '23514', constraint: 'wallets_balance_check' });
+    await uow.run(async r => {
+      r.wallets.add(Wallet.open({ id: id(), playerId: wallet.playerId,
+        initialBalance: Money.from({ amount: '0.00', currency: 'USD' }), at }));
+    });
   });
 
   test('database prevents ledger mutation and terminal wager mutation', async () => {

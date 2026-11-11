@@ -5,4 +5,5 @@ RUN bun install --frozen-lockfile
 COPY tsconfig.json bunfig.toml ./
 COPY src ./src
 COPY tests ./tests
+COPY scripts ./scripts
 CMD ["bun", "run", "db:migrate"]
