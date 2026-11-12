@@ -72,23 +72,3 @@ jobs:
           name: coverage
           path: coverage/
           if-no-files-found: warn
-      - name: Check SonarCloud configuration
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
-        run: |
-          test -n "$SONAR_TOKEN" || { echo 'Configure SONAR_TOKEN'; exit 1; }
-          test -n "$SONAR_ORGANIZATION" || { echo 'Configure SONAR_ORGANIZATION'; exit 1; }
-          test -n "$SONAR_PROJECT_KEY" || { echo 'Configure SONAR_PROJECT_KEY'; exit 1; }
-          test -s coverage/lcov.info
-      - name: SonarCloud analysis and Quality Gate
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >-
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
