@@ -32,7 +32,7 @@ services:
     stop_grace_period: 60s
     environment:
       <<: *sqs-environment
-      DATABASE_URL: postgresql://${POSTGRES_USER:-wagering}:${POSTGRES_PASSWORD:-wagering-local}@postgres:5432/${POSTGRES_DB:-wagering}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - '127.0.0.1:${HTTP_PORT:-3000}:3000'
     depends_on:
@@ -59,7 +59,7 @@ services:
     stop_grace_period: 60s
     environment:
       <<: *sqs-environment
-      DATABASE_URL: postgresql://${POSTGRES_USER:-wagering}:${POSTGRES_PASSWORD:-wagering-local}@postgres:5432/${POSTGRES_DB:-wagering}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CONSUMER_CONCURRENCY: ${CONSUMER_CONCURRENCY:-4}
       OUTBOX_CONCURRENCY: ${OUTBOX_CONCURRENCY:-2}
       PENDING_REFERENCE_TTL_MS: ${PENDING_REFERENCE_TTL_MS:-86400000}
@@ -96,9 +96,9 @@ services:
         'log_error_verbosity=terse',
       ]
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-wagering}
-      POSTGRES_USER: ${POSTGRES_USER:-wagering}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wagering-local}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
@@ -111,7 +111,7 @@ services:
   migrate:
     build: .
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-wagering}:${POSTGRES_PASSWORD:-wagering-local}@postgres:5432/${POSTGRES_DB:-wagering}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy
