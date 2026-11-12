@@ -1,6 +1,7 @@
 FROM oven/bun:1.3.2
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY scripts/prepare.ts ./scripts/prepare.ts
 RUN bun install --frozen-lockfile
 COPY tsconfig.json bunfig.toml ./
 COPY src ./src

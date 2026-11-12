@@ -84,15 +84,15 @@ A entrega é **at-least-once**. Portanto assuma que:
 
 ### Obrigatória
 
-| Item | Escolha |
-|---|---|
-| Runtime / package manager / test runner | **Bun 1.x** |
-| Linguagem | **TypeScript** em modo estrito |
-| Framework | **NestJS** |
-| Banco | **PostgreSQL** |
-| Mensageria | **AWS SQS** via **LocalStack** ou **MiniStack** |
-| Orquestração local | **Docker Compose** |
-| Migrations | versionadas e reversíveis |
+| Item                                    | Escolha                                         |
+| --------------------------------------- | ----------------------------------------------- |
+| Runtime / package manager / test runner | **Bun 1.x**                                     |
+| Linguagem                               | **TypeScript** em modo estrito                  |
+| Framework                               | **NestJS**                                      |
+| Banco                                   | **PostgreSQL**                                  |
+| Mensageria                              | **AWS SQS** via **LocalStack** ou **MiniStack** |
+| Orquestração local                      | **Docker Compose**                              |
+| Migrations                              | versionadas e reversíveis                       |
 
 ### ORM
 
@@ -133,7 +133,7 @@ Os blocos abaixo são **esqueletos de referência**: o que importa é que o esta
 ```ts
 // DTO — interface é adequada aqui
 interface MoneyProps {
-  amount: string;   // decimal string, ex.: "25.00"
+  amount: string; // decimal string, ex.: "25.00"
   currency: string; // ISO-4217
 }
 
@@ -232,20 +232,20 @@ Invariantes:
 
 ```ts
 enum WagerTransactionKind {
-  Opening  = "OPENING",   // interno: crédito de abertura da wallet
-  Bet      = "BET",
-  Win      = "WIN",
-  Loss     = "LOSS",
-  Refund   = "REFUND",
-  Rollback = "ROLLBACK",
+  Opening = 'OPENING', // interno: crédito de abertura da wallet
+  Bet = 'BET',
+  Win = 'WIN',
+  Loss = 'LOSS',
+  Refund = 'REFUND',
+  Rollback = 'ROLLBACK',
 }
 
 enum WagerTransactionStatus {
-  Pending          = "PENDING",            // aceita, ainda não aplicada
-  PendingReference = "PENDING_REFERENCE",  // aguardando a transação referenciada
-  Processed        = "PROCESSED",          // aplicada (terminal)
-  Rejected         = "REJECTED",           // violação de regra de negócio (terminal)
-  Failed           = "FAILED",             // erro permanente de infraestrutura (terminal, auditável)
+  Pending = 'PENDING', // aceita, ainda não aplicada
+  PendingReference = 'PENDING_REFERENCE', // aguardando a transação referenciada
+  Processed = 'PROCESSED', // aplicada (terminal)
+  Rejected = 'REJECTED', // violação de regra de negócio (terminal)
+  Failed = 'FAILED', // erro permanente de infraestrutura (terminal, auditável)
 }
 
 class WagerTransaction {
@@ -274,10 +274,18 @@ class WagerTransaction {
   static create(props: CreateWagerTransactionProps): WagerTransaction;
   static rehydrate(state: WagerTransactionState): WagerTransaction;
 
-  get status(): WagerTransactionStatus { return this._status; }
-  get referenceTransactionId(): string | undefined { return this._referenceTransactionId; }
-  get failureCode(): FailureCode | undefined { return this._failureCode; }
-  get processedAt(): Date | undefined { return this._processedAt; }
+  get status(): WagerTransactionStatus {
+    return this._status;
+  }
+  get referenceTransactionId(): string | undefined {
+    return this._referenceTransactionId;
+  }
+  get failureCode(): FailureCode | undefined {
+    return this._failureCode;
+  }
+  get processedAt(): Date | undefined {
+    return this._processedAt;
+  }
 
   // ---- transições (lançam InvalidTransactionStateError se o estado atual for terminal)
   markProcessed(referenceTransactionId: string | undefined, at: Date): void;
@@ -287,8 +295,8 @@ class WagerTransaction {
 
   // ---- consultas de domínio
   isTerminal(): boolean;
-  affectsBalance(): boolean;      // false para LOSS
-  requiresReference(): boolean;   // true para REFUND e ROLLBACK
+  affectsBalance(): boolean; // false para LOSS
+  requiresReference(): boolean; // true para REFUND e ROLLBACK
   matchesPayload(payloadHash: string): boolean;
   ledgerDirectionFor(reference?: WagerTransaction): LedgerDirection;
 }
@@ -302,7 +310,10 @@ class WagerTransaction {
 ### 6.4 WalletLedgerEntry (imutável)
 
 ```ts
-enum LedgerDirection { Debit = "DEBIT", Credit = "CREDIT" }
+enum LedgerDirection {
+  Debit = 'DEBIT',
+  Credit = 'CREDIT',
+}
 
 class WalletLedgerEntry {
   private constructor(
@@ -328,7 +339,7 @@ class WalletLedgerEntry {
 
 - Uma transação financeira produz **no máximo um lançamento por wallet**.
 - Operações sem efeito no saldo (`LOSS`, e qualquer transação `REJECTED`) **não geram lançamento**.
-- Ledger de **partidas dobradas** (*double-entry bookkeeping*) é diferencial opcional, não requisito.
+- Ledger de **partidas dobradas** (_double-entry bookkeeping_) é diferencial opcional, não requisito.
 
 ### 6.5 Inbox e Outbox
 
@@ -345,7 +356,9 @@ class InboxMessage {
   static receive(props: ReceiveInboxProps): InboxMessage;
   static rehydrate(state: InboxMessageState): InboxMessage;
 
-  get processedAt(): Date | undefined { return this._processedAt; }
+  get processedAt(): Date | undefined {
+    return this._processedAt;
+  }
 
   isProcessed(): boolean;
   markProcessed(at: Date): void;
@@ -366,9 +379,15 @@ class OutboxMessage {
   static enqueue(event: IntegrationEvent<unknown>): OutboxMessage;
   static rehydrate(state: OutboxMessageState): OutboxMessage;
 
-  get attempts(): number { return this._attempts; }
-  get nextAttemptAt(): Date | undefined { return this._nextAttemptAt; }
-  get publishedAt(): Date | undefined { return this._publishedAt; }
+  get attempts(): number {
+    return this._attempts;
+  }
+  get nextAttemptAt(): Date | undefined {
+    return this._nextAttemptAt;
+  }
+  get publishedAt(): Date | undefined {
+    return this._publishedAt;
+  }
 
   isPending(): boolean;
   isDue(now: Date): boolean;
@@ -384,12 +403,12 @@ Inbox, alteração financeira, ledger e outbox participam da **mesma transação
 
 ## 7. Regras de negócio
 
-| Operação | Efeito no saldo | Ledger | Regra principal |
-|---|---|---|---|
-| `BET` | débito | 1 entrada `DEBIT` | rejeitar se saldo insuficiente |
-| `WIN` | crédito | 1 entrada `CREDIT` | pode referenciar a `BET` da mesma rodada |
-| `LOSS` | nenhum | nenhuma | registra o resultado sem mover saldo |
-| `REFUND` | crédito | 1 entrada `CREDIT` | reverte uma `BET` `PROCESSED`, uma única vez |
+| Operação   | Efeito no saldo       | Ledger              | Regra principal                                  |
+| ---------- | --------------------- | ------------------- | ------------------------------------------------ |
+| `BET`      | débito                | 1 entrada `DEBIT`   | rejeitar se saldo insuficiente                   |
+| `WIN`      | crédito               | 1 entrada `CREDIT`  | pode referenciar a `BET` da mesma rodada         |
+| `LOSS`     | nenhum                | nenhuma             | registra o resultado sem mover saldo             |
+| `REFUND`   | crédito               | 1 entrada `CREDIT`  | reverte uma `BET` `PROCESSED`, uma única vez     |
 | `ROLLBACK` | inverso da referência | 1 entrada invertida | reverte uma transação `PROCESSED`, uma única vez |
 
 Regras adicionais:
@@ -534,9 +553,9 @@ POST /wallets/:walletId/reconciliation
 ```json
 {
   "walletId": "0192f291-27dd-7d3f-8071-5f8685deef37",
-  "storedBalance":     { "amount": "975.00", "currency": "BRL" },
+  "storedBalance": { "amount": "975.00", "currency": "BRL" },
   "calculatedBalance": { "amount": "975.00", "currency": "BRL" },
-  "difference":        { "amount": "0.00",   "currency": "BRL" },
+  "difference": { "amount": "0.00", "currency": "BRL" },
   "consistent": true,
   "checkedEntries": 42
 }
@@ -613,12 +632,12 @@ Cenário que precisa funcionar:
 
 ### Eventos mínimos
 
-| Evento | Quando |
-|---|---|
-| `WagerTransactionProcessed` | qualquer transação aplicada, inclusive `LOSS` |
-| `WagerTransactionRejected` | transação rejeitada por regra de negócio |
-| `WalletBalanceChanged` | **somente** quando o saldo muda |
-| `WagerTransactionPendingReference` | referência ausente |
+| Evento                             | Quando                                        |
+| ---------------------------------- | --------------------------------------------- |
+| `WagerTransactionProcessed`        | qualquer transação aplicada, inclusive `LOSS` |
+| `WagerTransactionRejected`         | transação rejeitada por regra de negócio      |
+| `WalletBalanceChanged`             | **somente** quando o saldo muda               |
+| `WagerTransactionPendingReference` | referência ausente                            |
 
 Envelope — **classe abstrata**, com uma subclasse concreta por evento:
 
@@ -643,7 +662,9 @@ abstract class IntegrationEvent<T> {
   readonly occurredAt: Date;
   readonly data: Readonly<T>;
 
-  protected constructor(props: IntegrationEventProps<T>) { /* ... */ }
+  protected constructor(props: IntegrationEventProps<T>) {
+    /* ... */
+  }
 
   /** Envelope serializado gravado no payload da outbox. */
   toJSON(): {
@@ -652,7 +673,7 @@ abstract class IntegrationEvent<T> {
     aggregateId: string;
     correlationId: string;
     causationId?: string;
-    occurredAt: string;   // ISO-8601
+    occurredAt: string; // ISO-8601
     version: number;
     data: T;
   };
@@ -673,7 +694,7 @@ interface WalletBalanceChangedData {
 }
 
 class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedData> {
-  readonly eventType = "WalletBalanceChanged";
+  readonly eventType = 'WalletBalanceChanged';
   readonly version = 1;
 
   static from(wallet: Wallet, entry: WalletLedgerEntry, ctx: EventContext): WalletBalanceChanged;
@@ -737,16 +758,16 @@ wallet.balance == saldo reconstruído pelo ledger
 
 ## 14. Avaliação — 100 pontos
 
-| Área | Pontos | O que será observado |
-|---|---|---|
-| Correção financeira | 20 | `Money`, saldo, ledger, reversões, reconciliação |
-| Concorrência | 20 | lost updates, hot wallet, múltiplas instâncias, locks |
-| Idempotência | 15 | dedup persistente, replay, payload conflitante |
-| Mensageria e falhas | 15 | inbox, outbox, retry, DLQ, crash recovery, shutdown |
-| Modelagem e arquitetura | 10 | invariantes encapsuladas em classes, boundaries, portas, simplicidade |
-| Testes | 10 | integração real, races, determinismo, cobertura de falhas |
-| Observabilidade | 5 | logs, métricas, health checks, diagnóstico |
-| Documentação | 5 | `README.md` com setup e comandos, `ARCHITECTURE.md` com decisões, trade-offs e limitações |
+| Área                    | Pontos | O que será observado                                                                      |
+| ----------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| Correção financeira     | 20     | `Money`, saldo, ledger, reversões, reconciliação                                          |
+| Concorrência            | 20     | lost updates, hot wallet, múltiplas instâncias, locks                                     |
+| Idempotência            | 15     | dedup persistente, replay, payload conflitante                                            |
+| Mensageria e falhas     | 15     | inbox, outbox, retry, DLQ, crash recovery, shutdown                                       |
+| Modelagem e arquitetura | 10     | invariantes encapsuladas em classes, boundaries, portas, simplicidade                     |
+| Testes                  | 10     | integração real, races, determinismo, cobertura de falhas                                 |
+| Observabilidade         | 5      | logs, métricas, health checks, diagnóstico                                                |
+| Documentação            | 5      | `README.md` com setup e comandos, `ARCHITECTURE.md` com decisões, trade-offs e limitações |
 
 ### Falhas eliminatórias
 

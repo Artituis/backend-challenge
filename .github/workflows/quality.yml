@@ -1,0 +1,94 @@
+name: Quality
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HUSKY: '0'
+      TEST_DATABASE_URL: postgresql://wagering:wagering-test@localhost:5432/wagering_test
+      TEST_SQS_ENDPOINT: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: wagering_test
+          POSTGRES_USER: wagering
+          POSTGRES_PASSWORD: wagering-test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U wagering -d wagering_test"
+          --health-interval 2s --health-timeout 3s --health-retries 60
+      localstack:
+        image: localstack/localstack:4.10.0
+        env:
+          SERVICES: sqs
+          AWS_DEFAULT_REGION: us-east-1
+          SQS_ENDPOINT_STRATEGY: dynamic
+        ports: ['4566:4566']
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health"
+          --health-interval 2s --health-timeout 3s --health-retries 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - name: Check pull request commit messages
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun run commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+      - name: Unit, HTTP, PostgreSQL and SQS tests with LCOV
+        run: bun run test:ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: warn
+      - name: Check SonarCloud configuration
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          test -n "$SONAR_TOKEN" || { echo 'Configure SONAR_TOKEN'; exit 1; }
+          test -n "$SONAR_ORGANIZATION" || { echo 'Configure SONAR_ORGANIZATION'; exit 1; }
+          test -n "$SONAR_PROJECT_KEY" || { echo 'Configure SONAR_PROJECT_KEY'; exit 1; }
+          test -s coverage/lcov.info
+      - name: SonarCloud analysis and Quality Gate
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}

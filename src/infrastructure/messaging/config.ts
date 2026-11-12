@@ -21,7 +21,8 @@ export interface MessagingConfig {
 export function messagingConfig(env: NodeJS.ProcessEnv = process.env): MessagingConfig {
   const integer = (key: string, fallback: number, min: number, max: number): number => {
     const value = env[key] === undefined ? fallback : Number(env[key]);
-    if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid ${key}`);
+    if (!Number.isSafeInteger(value) || value < min || value > max)
+      throw new Error(`Invalid ${key}`);
     return value;
   };
   const config: MessagingConfig = {
@@ -43,7 +44,9 @@ export function messagingConfig(env: NodeJS.ProcessEnv = process.env): Messaging
     pendingBaseDelayMs: integer('PENDING_REFERENCE_BASE_DELAY_MS', 1000, 1, 3600000),
     pendingMaxDelayMs: integer('PENDING_REFERENCE_MAX_DELAY_MS', 300000, 1, 86400000),
   };
-  if (config.pendingMaxDelayMs < config.pendingBaseDelayMs) throw new Error('Pending max delay must be >= base delay');
-  if (config.requestTimeoutMs >= config.visibilitySeconds * 1000 / 3) throw new Error('SQS request timeout must be shorter than heartbeat interval');
+  if (config.pendingMaxDelayMs < config.pendingBaseDelayMs)
+    throw new Error('Pending max delay must be >= base delay');
+  if (config.requestTimeoutMs >= (config.visibilitySeconds * 1000) / 3)
+    throw new Error('SQS request timeout must be shorter than heartbeat interval');
   return config;
 }

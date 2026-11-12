@@ -2,6 +2,7 @@ node_modules/
 .tools/
 coverage/
 dist/
+.scannerwork/
 reports/
 .env
 .env.*

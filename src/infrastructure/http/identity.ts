@@ -5,5 +5,8 @@ export interface ProviderIdentityPort {
 export const PROVIDER_IDENTITY = Symbol('PROVIDER_IDENTITY');
 /** Challenge/local extension point; this does not authenticate or authorize any caller. */
 export class NoopProviderIdentity implements ProviderIdentityPort {
-  async authorize(_request: Request, _resource: { providerId?: string; walletId?: string }): Promise<void> {}
+  async authorize(
+    _request: Request,
+    _resource: { providerId?: string; walletId?: string },
+  ): Promise<void> {}
 }

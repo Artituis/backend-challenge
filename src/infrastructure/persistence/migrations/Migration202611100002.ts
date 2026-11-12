@@ -17,5 +17,7 @@ export class Migration202611100002 extends Migration {
         FOR EACH STATEMENT EXECUTE FUNCTION wagering_forbid_mutation();
     `);
   }
-  override async down(): Promise<void> { this.addSql('DROP TABLE wager_results;'); }
+  override async down(): Promise<void> {
+    this.addSql('DROP TABLE wager_results;');
+  }
 }

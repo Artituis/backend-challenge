@@ -1,5 +1,10 @@
 # Testes — integração, concorrência, recuperação e observabilidade
 
+Os checks da Fase 7 estão em [QUALITY.md](QUALITY.md). `bun run test:unit` inclui
+schemas Zod e o servidor Nest/Swagger real sem dependências externas.
+`bun run test:ci` exige PostgreSQL/SQS configurados e gera `coverage/lcov.info`;
+`bun run test:coverage` também gera LCOV, mas pode ignorar integração sem TEST_*.
+
 ## Execução
 
 Pré-requisitos: Docker Desktop/Engine com Compose v2 e Bun. Execute na raiz:
@@ -39,14 +44,14 @@ ignora as suítes de integração. Para validar o sistema completo use `test:int
 
 ## Cobertura e evidência
 
-| Arquivo | Cenários |
-| --- | --- |
-| `tests/observability/telemetry.test.ts` | Privacidade dos logs, isolamento assíncrono, métricas cumulativas, readiness com timeout e contagem somente após commit |
-| `tests/integration/http.test.ts` | API real com PostgreSQL/SQS: abertura, replay, conflito, paginação, reconciliação, propagação de IDs e fila removida/recriada no readiness |
-| `tests/integration/persistence.test.ts` | Todas as migrations up/down até zero/up; ausência de tabelas residuais; constraints SQL por código/nome; unicidade player/moeda; atomicidade Wallet/Wager/Ledger/Inbox/Outbox; histórico imutável; SKIP LOCKED |
-| `tests/integration/wagering.test.ts` | Duas BETs de 80 sobre 100; 50 cópias da mesma aposta; 20 wallets × 5 débitos; três pools independentes; disputa de referências; resposta original imutável; rollback na confirmação; falha real de INSERT da Outbox |
-| `tests/integration/messaging.test.ts` | Redelivery do mesmo MessageId; dedup persistente da Inbox; FIFO; DLQ e redrive nativo; fila de eventos removida/recriada; backoff da publicação; shutdown Nest |
-| `tests/integration/resilience.test.ts` | SIGKILL antes do ACK e após envio ao SQS; serviço Nest reiniciado recupera Inbox/Outbox; quatro publishers/pools concorrentes; REFUND e ROLLBACK fora de ordem; backoff exponencial com teto, retenção, resolução e expiração |
+| Arquivo                                 | Cenários                                                                                                                                                                                                                      |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/observability/telemetry.test.ts` | Privacidade dos logs, isolamento assíncrono, métricas cumulativas, readiness com timeout e contagem somente após commit                                                                                                       |
+| `tests/integration/http.test.ts`        | API real com PostgreSQL/SQS: abertura, replay, conflito, paginação, reconciliação, propagação de IDs e fila removida/recriada no readiness                                                                                    |
+| `tests/integration/persistence.test.ts` | Todas as migrations up/down até zero/up; ausência de tabelas residuais; constraints SQL por código/nome; unicidade player/moeda; atomicidade Wallet/Wager/Ledger/Inbox/Outbox; histórico imutável; SKIP LOCKED                |
+| `tests/integration/wagering.test.ts`    | Duas BETs de 80 sobre 100; 50 cópias da mesma aposta; 20 wallets × 5 débitos; três pools independentes; disputa de referências; resposta original imutável; rollback na confirmação; falha real de INSERT da Outbox           |
+| `tests/integration/messaging.test.ts`   | Redelivery do mesmo MessageId; dedup persistente da Inbox; FIFO; DLQ e redrive nativo; fila de eventos removida/recriada; backoff da publicação; shutdown Nest                                                                |
+| `tests/integration/resilience.test.ts`  | SIGKILL antes do ACK e após envio ao SQS; serviço Nest reiniciado recupera Inbox/Outbox; quatro publishers/pools concorrentes; REFUND e ROLLBACK fora de ordem; backoff exponencial com teto, retenção, resolução e expiração |
 
 O cenário 100 − 80 comprova **um lançamento de débito**. O ledger completo tem
 dois registros: o crédito auditável de abertura e o débito da aposta. Excluir a
@@ -83,17 +88,18 @@ HTTP, envio SQS e commit SQS observado, espera por locks e atraso da Outbox.
 O script usa o mesmo handler HTTP da aplicação, `POST /wagering/transactions`,
 incluindo header de idempotência, logs e métricas, e resolve `ProcessWager` pelo
 `WageringModule` do Nest. Mede HTTP + caso de uso + PostgreSQL e SQS + ConsumerWorker
-+ PostgreSQL. O listener é temporário; identidade continua no-op, sem gateway/TLS.
+
+- PostgreSQL. O listener é temporário; identidade continua no-op, sem gateway/TLS.
 
 Parâmetros (variáveis de ambiente):
 
-| Variável | Padrão | Significado |
-| --- | --- | --- |
-| `LOAD_DURATION_SECONDS` | 30 | Janela de submissão |
-| `LOAD_CONCURRENCY` | 20 | Clientes paralelos |
-| `LOAD_WALLETS` | 20 | Wallets pré-carregadas |
-| `LOAD_MAX_REQUESTS` | 10000 | Limite de submissões e memória de amostras |
-| `LOAD_DRAIN_SECONDS` | 120 | Prazo para terminar processamento e publicação |
+| Variável                | Padrão | Significado                                    |
+| ----------------------- | ------ | ---------------------------------------------- |
+| `LOAD_DURATION_SECONDS` | 30     | Janela de submissão                            |
+| `LOAD_CONCURRENCY`      | 20     | Clientes paralelos                             |
+| `LOAD_WALLETS`          | 20     | Wallets pré-carregadas                         |
+| `LOAD_MAX_REQUESTS`     | 10000  | Limite de submissões e memória de amostras     |
+| `LOAD_DRAIN_SECONDS`    | 120    | Prazo para terminar processamento e publicação |
 
 Exemplo PowerShell:
 

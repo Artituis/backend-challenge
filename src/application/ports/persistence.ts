@@ -1,4 +1,10 @@
-import type { InboxMessage, OutboxMessage, WagerTransaction, Wallet, WalletLedgerEntry } from '../../domain';
+import type {
+  InboxMessage,
+  OutboxMessage,
+  WagerTransaction,
+  Wallet,
+  WalletLedgerEntry,
+} from '../../domain';
 import type { WagerTransactionKind } from '../../domain';
 import type { WagerResult } from '../wagering/contracts';
 
@@ -18,12 +24,19 @@ export interface WagerTransactionRepository {
   findReference(providerId: string, externalId: string): Promise<WagerTransaction | undefined>;
   /** Caller must hold the target wallet lock. */
   hasProcessedReversal(referenceId: string, kind: WagerTransactionKind): Promise<boolean>;
-  findPendingReferences(providerId: string, externalId: string, limit: number): Promise<WagerTransaction[]>;
+  findPendingReferences(
+    providerId: string,
+    externalId: string,
+    limit: number,
+  ): Promise<WagerTransaction[]>;
   add(transaction: WagerTransaction): void;
   save(transaction: WagerTransaction): void;
 }
 export interface WalletLedgerRepository {
-  findByTransaction(walletId: string, transactionId: string): Promise<WalletLedgerEntry | undefined>;
+  findByTransaction(
+    walletId: string,
+    transactionId: string,
+  ): Promise<WalletLedgerEntry | undefined>;
   listByWallet(walletId: string, afterVersion: number, limit: number): Promise<WalletLedgerEntry[]>;
 }
 export interface InboxRepository {
@@ -42,7 +55,12 @@ export interface OutboxRepository {
 export interface Repositories {
   readonly pendingReferences: {
     /** Claim one scheduling row with SKIP LOCKED, until the UnitOfWork commits. */
-    claim(now: Date): Promise<{ transactionId: string; attempts: number; correlationId?: string; messageId?: string } | undefined>;
+    claim(
+      now: Date,
+    ): Promise<
+      | { transactionId: string; attempts: number; correlationId?: string; messageId?: string }
+      | undefined
+    >;
     retry(transactionId: string, nextAttemptAt: Date): Promise<void>;
     complete(transactionId: string): Promise<void>;
   };

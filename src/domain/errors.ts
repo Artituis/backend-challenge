@@ -15,7 +15,10 @@ export enum FailureCode {
 }
 
 export class DomainError extends Error {
-  constructor(public readonly code: FailureCode, message: string) {
+  constructor(
+    public readonly code: FailureCode,
+    message: string,
+  ) {
     super(message);
     this.name = new.target.name;
   }
@@ -27,6 +30,10 @@ export class InvalidTransactionStateError extends DomainError {
   }
 }
 
-export function invariant(condition: boolean, code: FailureCode, message: string): asserts condition {
+export function invariant(
+  condition: boolean,
+  code: FailureCode,
+  message: string,
+): asserts condition {
   if (!condition) throw new DomainError(code, message);
 }

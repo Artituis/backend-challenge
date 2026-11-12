@@ -1,0 +1,8 @@
+node_modules/
+.tools/
+.scannerwork/
+bun.lock
+coverage/
+dist/
+reports/
+.husky/_/

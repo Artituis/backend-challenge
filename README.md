@@ -11,6 +11,10 @@ Decisões, invariantes, autenticação, erros e limitações estão em
 [PERSISTENCE.md](PERSISTENCE.md), [WAGERING.md](WAGERING.md),
 [MESSAGING.md](MESSAGING.md) e [TESTING.md](TESTING.md).
 
+A Fase 7 está descrita em [QUALITY.md](QUALITY.md): Zod nas entradas HTTP/SQS,
+Swagger interativo em <http://localhost:3000/docs>, Pino, padronização e CI/SonarCloud.
+Use `bun run format:check`, `bun run lint` e `bun run typecheck` antes de enviar alterações.
+
 ## Setup rápido com Docker Compose
 
 Requisitos: Docker Desktop/Engine ativo, Compose v2 e portas locais 3000, 5432 e
@@ -91,23 +95,23 @@ Em outro terminal, execute `bun run start:worker`. O `.env` aponta PostgreSQL/SQ
 para localhost. Se a API do Compose estiver ativa, pare-a com
 `docker compose stop api` antes de usar a mesma porta local.
 
-| Configuração | Padrão / finalidade |
-| --- | --- |
-| `DATABASE_URL` | Conexão PostgreSQL obrigatória; nunca registrar em logs |
-| `HTTP_PORT` | 3000, porta publicada pelo Compose |
-| `PORT` | 3000, listener da API fora do Compose |
-| `WORKER_HEALTH_PORT` | 3001, listener operacional do worker |
-| `AWS_REGION` / credenciais | us-east-1 / test no LocalStack; usar IAM em AWS |
-| `SQS_ENDPOINT` | http://localhost:4566 local; omitir para AWS |
-| `SQS_QUEUE_NAME` | wager-transactions.fifo |
-| `SQS_DLQ_NAME` | wager-transactions-dlq.fifo |
-| `SQS_EVENTS_QUEUE_NAME` | wager-events.fifo |
-| `CONSUMER_CONCURRENCY` / `OUTBOX_CONCURRENCY` | 4 / 2 por processo |
-| `SQS_MAX_RECEIVES` / `SQS_VISIBILITY_SECONDS` | 5 / 60 segundos |
-| `SQS_REQUEST_TIMEOUT_MS` / `SQS_POLL_SECONDS` | 5000 / 20 segundos de long poll |
-| `WORKER_SHUTDOWN_MS` / `WORKER_IDLE_MS` | 25000 / 1000 |
-| `PENDING_REFERENCE_TTL_MS` | 86400000, 24 horas |
-| `PENDING_REFERENCE_BASE_DELAY_MS` / `PENDING_REFERENCE_MAX_DELAY_MS` | 1000 / 300000 |
+| Configuração                                                         | Padrão / finalidade                                     |
+| -------------------------------------------------------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`                                                       | Conexão PostgreSQL obrigatória; nunca registrar em logs |
+| `HTTP_PORT`                                                          | 3000, porta publicada pelo Compose                      |
+| `PORT`                                                               | 3000, listener da API fora do Compose                   |
+| `WORKER_HEALTH_PORT`                                                 | 3001, listener operacional do worker                    |
+| `AWS_REGION` / credenciais                                           | us-east-1 / test no LocalStack; usar IAM em AWS         |
+| `SQS_ENDPOINT`                                                       | http://localhost:4566 local; omitir para AWS            |
+| `SQS_QUEUE_NAME`                                                     | wager-transactions.fifo                                 |
+| `SQS_DLQ_NAME`                                                       | wager-transactions-dlq.fifo                             |
+| `SQS_EVENTS_QUEUE_NAME`                                              | wager-events.fifo                                       |
+| `CONSUMER_CONCURRENCY` / `OUTBOX_CONCURRENCY`                        | 4 / 2 por processo                                      |
+| `SQS_MAX_RECEIVES` / `SQS_VISIBILITY_SECONDS`                        | 5 / 60 segundos                                         |
+| `SQS_REQUEST_TIMEOUT_MS` / `SQS_POLL_SECONDS`                        | 5000 / 20 segundos de long poll                         |
+| `WORKER_SHUTDOWN_MS` / `WORKER_IDLE_MS`                              | 25000 / 1000                                            |
+| `PENDING_REFERENCE_TTL_MS`                                           | 86400000, 24 horas                                      |
+| `PENDING_REFERENCE_BASE_DELAY_MS` / `PENDING_REFERENCE_MAX_DELAY_MS` | 1000 / 300000                                           |
 
 Migrations: `bun run db:migrate`, `bun run db:pending`, `bun run db:rollback`.
 Rollback não apaga incompatibilidades financeiras silenciosamente; execute-o apenas
@@ -196,16 +200,16 @@ Paginação por versão crescente, cursor opaco vinculado à wallet, limite 1–
 diferença `0.00`, `consistent:true`, dois lançamentos contando OPENING. Divergências
 são sinalizadas em log/métrica, sem correção automática.
 
-| HTTP | Significado |
-| --- | --- |
-| 200 / 201 | Consulta/processamento concluído / wallet criada |
-| 202 | Referência pendente, persistida para reprocessamento |
-| 400 | JSON, campos ou dinheiro inválidos; header obrigatório ausente |
-| 404 | Rota/recurso consultado inexistente |
-| 409 | Conflito de idempotência ou wallet duplicada |
-| 422 | Regra de negócio rejeitada |
-| 500 | Falha permanente/invariante interna |
-| 503 | Infraestrutura indisponível/retries esgotados; reenviar com a mesma chave |
+| HTTP      | Significado                                                               |
+| --------- | ------------------------------------------------------------------------- |
+| 200 / 201 | Consulta/processamento concluído / wallet criada                          |
+| 202       | Referência pendente, persistida para reprocessamento                      |
+| 400       | JSON, campos ou dinheiro inválidos; header obrigatório ausente            |
+| 404       | Rota/recurso consultado inexistente                                       |
+| 409       | Conflito de idempotência ou wallet duplicada                              |
+| 422       | Regra de negócio rejeitada                                                |
+| 500       | Falha permanente/invariante interna                                       |
+| 503       | Infraestrutura indisponível/retries esgotados; reenviar com a mesma chave |
 
 ## Entrada SQS
 
@@ -243,14 +247,14 @@ bun run test:concurrency
 bun run test:load
 ```
 
-| Comando | Cobertura / requisitos |
-| --- | --- |
-| `test` | Todas as suítes; integração é ignorada quando TEST_* não está configurado |
-| `test:unit` | Domínio, aplicação, consumidor e observabilidade; não precisa Docker |
-| `test:integration` | Typecheck e todos os testes em PostgreSQL/LocalStack reais, incluindo HTTP/health |
+| Comando            | Cobertura / requisitos                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test`             | Todas as suítes; integração é ignorada quando TEST_* não está configurado                                                                            |
+| `test:unit`        | Domínio, aplicação, consumidor e observabilidade; não precisa Docker                                                                                 |
+| `test:integration` | Typecheck e todos os testes em PostgreSQL/LocalStack reais, incluindo HTTP/health                                                                    |
 | `test:concurrency` | Wagering/resiliência: 50 replays, disputa de saldo, wallets paralelas, >=3 pools independentes, crashes de processos reais, publishers e referências |
-| `test:load` | Carga pelo handler HTTP final + SQS, relatório JSON e verificação do ledger |
-| `test:coverage` | Cobertura Bun; integração exige infraestrutura configurada |
+| `test:load`        | Carga pelo handler HTTP final + SQS, relatório JSON e verificação do ledger                                                                          |
+| `test:coverage`    | Cobertura Bun; integração exige infraestrutura configurada                                                                                           |
 
 Deixe `TEST_DATABASE_URL` e `TEST_SQS_ENDPOINT` **ambos ausentes** para os scripts
 provisionarem projeto Compose exclusivo, sem portas no host nem volumes da aplicação.

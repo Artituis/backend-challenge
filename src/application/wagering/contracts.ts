@@ -26,7 +26,9 @@ export interface WagerResult {
   readonly walletVersion: number;
   readonly failureCode: FailureCode | null;
 }
-export interface WagerResponse extends WagerResult { readonly idempotentReplay: boolean; }
+export interface WagerResponse extends WagerResult {
+  readonly idempotentReplay: boolean;
+}
 
 export interface ApplicationRuntime {
   id(): string;
@@ -39,5 +41,7 @@ export const APPLICATION_RUNTIME = Symbol('APPLICATION_RUNTIME');
 
 /** Only infrastructure errors known to have rolled back are safe to retry. */
 export class RetryableTransactionError extends Error {
-  constructor(cause: unknown) { super('Transaction rolled back; retry the entire operation', { cause }); }
+  constructor(cause: unknown) {
+    super('Transaction rolled back; retry the entire operation', { cause });
+  }
 }

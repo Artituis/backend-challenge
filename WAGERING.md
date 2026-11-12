@@ -25,9 +25,13 @@ const orm = await MikroORM.init(persistenceConfig());
 const bet = new BetUseCase(new ProcessWager(new MikroUnitOfWork(orm), new SystemRuntime()));
 try {
   const response = await bet.execute({
-    providerId: 'provider-a', externalTransactionId: 'bet-123',
-    idempotencyKey: 'provider-a:bet-123', walletId: 'existing-wallet',
-    playerId: 'existing-player', roundId: 'round-1', gameId: 'game-1',
+    providerId: 'provider-a',
+    externalTransactionId: 'bet-123',
+    idempotencyKey: 'provider-a:bet-123',
+    walletId: 'existing-wallet',
+    playerId: 'existing-player',
+    roundId: 'round-1',
+    gameId: 'game-1',
     money: { amount: '25.00', currency: 'BRL' },
     // Apenas para entregas da fila:
     delivery: { consumerName: 'wagering', messageId: 'sqs-message-id' },
@@ -137,12 +141,12 @@ precisaria recuperar a resposta original de uma fonte auditável antes do rollou
 
 ## Regras e eventos
 
-| Operação | Efeito | Validação adicional |
-| --- | --- | --- |
-| BET | Débito | Saldo insuficiente → `REJECTED / INSUFFICIENT_FUNDS` |
-| WIN | Crédito | Referência opcional a BET processada |
-| LOSS | Sem movimento | Valor zero; referência opcional a BET processada |
-| REFUND | Crédito | Valor integral de BET; uma reversão por tipo |
+| Operação | Efeito          | Validação adicional                                                                |
+| -------- | --------------- | ---------------------------------------------------------------------------------- |
+| BET      | Débito          | Saldo insuficiente → `REJECTED / INSUFFICIENT_FUNDS`                               |
+| WIN      | Crédito         | Referência opcional a BET processada                                               |
+| LOSS     | Sem movimento   | Valor zero; referência opcional a BET processada                                   |
+| REFUND   | Crédito         | Valor integral de BET; uma reversão por tipo                                       |
 | ROLLBACK | Direção inversa | Valor integral de BET/WIN/REFUND; débito sem saldo → `REVERSAL_INSUFFICIENT_FUNDS` |
 
 Referências exigem mesmo provedor, player, wallet, moeda e rodada. Referência de

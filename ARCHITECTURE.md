@@ -7,7 +7,7 @@ SQS e outbox entregam **at-least-once**, com deduplicação persistente de efeit
 
 ```mermaid
 flowchart LR
-  HTTP[HTTP / Bun] --> APP[Casos de uso / NestJS]
+  HTTP[HTTP / NestJS em Bun] --> APP[Casos de uso / NestJS]
   SQS[SQS FIFO] --> CON[Consumer]
   CON --> APP
   APP --> UOW[Unit of Work / PostgreSQL]
@@ -19,20 +19,21 @@ flowchart LR
   CON --> DLQ[DLQ e quarentena durável]
 ```
 
-| Diretório | Responsabilidade |
-| --- | --- |
-| `src/domain` | Money, entidades, transições e invariantes; sem framework, I/O ou relógio global |
-| `src/application` | Processamento, idempotência, retry e portas de persistência/telemetria |
-| `src/infrastructure/persistence` | MikroORM, SQL, mapeadores e migrations |
-| `src/infrastructure/messaging` | SQS, Inbox/dispositions, heartbeat, outbox e referências |
-| `src/infrastructure/http` | Contratos HTTP, extensão de identidade e servidor |
-| `src/infrastructure/health` | Probes ativos de PostgreSQL e SQS |
-| `src/infrastructure/observability` | Contexto assíncrono, logger JSON e métricas |
+| Diretório                          | Responsabilidade                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `src/domain`                       | Money, entidades, transições e invariantes; sem framework, I/O ou relógio global |
+| `src/application`                  | Processamento, idempotência, retry e portas de persistência/telemetria           |
+| `src/infrastructure/persistence`   | MikroORM, SQL, mapeadores e migrations                                           |
+| `src/infrastructure/messaging`     | SQS, Inbox/dispositions, heartbeat, outbox e referências                         |
+| `src/infrastructure/http`          | Contratos HTTP, extensão de identidade e servidor                                |
+| `src/infrastructure/health`        | Probes ativos de PostgreSQL e SQS                                                |
+| `src/infrastructure/observability` | Contexto assíncrono, logger JSON e métricas                                      |
 
-NestJS gerencia DI, módulos e shutdown com factories explícitas, sem depender de
-emissão de metadata de decorators. O transporte HTTP usa `Bun.serve`; o handler
-é compartilhado pela API e pelo teste de carga. Não depende de Express/Fastify.
-Executar a API em Node exige substituir esse adapter, preservando os casos de uso.
+NestJS gerencia DI, módulos e shutdown com factories explícitas e `@Inject`, sem
+depender de emissão de metadata de tipos. A API usa controllers Nest e Express
+executados em Bun, com Swagger em `/docs` e schemas Zod na borda. Os controllers
+delegam ao handler compartilhado com o teste de carga. O listener operacional dos
+workers e o gerador de carga usam `Bun.serve`. Detalhes em [QUALITY.md](QUALITY.md).
 
 ## ORM, Money e estratégia transacional
 
@@ -80,13 +81,13 @@ conflitos desses locks seguem a [documentação PostgreSQL](https://www.postgres
 
 ## Modelagem e invariantes
 
-| Operação | Valor | Efeito/referência |
-| --- | --- | --- |
-| OPENING | Positivo | Crédito interno; proibido em HTTP/SQS |
-| BET | Positivo | Débito; sem referência |
-| WIN | Positivo | Crédito; referência opcional a BET |
-| LOSS | Zero | Sem ledger; referência opcional a BET |
-| REFUND | Igual à BET | Crédito integral de BET processada |
+| Operação | Valor              | Efeito/referência                     |
+| -------- | ------------------ | ------------------------------------- |
+| OPENING  | Positivo           | Crédito interno; proibido em HTTP/SQS |
+| BET      | Positivo           | Débito; sem referência                |
+| WIN      | Positivo           | Crédito; referência opcional a BET    |
+| LOSS     | Zero               | Sem ledger; referência opcional a BET |
+| REFUND   | Igual à BET        | Crédito integral de BET processada    |
 | ROLLBACK | Igual à referência | Inverte BET, WIN ou REFUND processada |
 
 Wallet tem unicidade `(playerId, currency)`, saldo não negativo e versão inicial 1.
@@ -103,11 +104,11 @@ são consultadas sob lock da wallet e reforçadas por índice único parcial
 tipo**: REFUND e ROLLBACK da mesma BET são permitidos separadamente. Reversão
 parcial é fora de escopo. ROLLBACK que causaria saldo negativo tem erro distinto.
 
-| Estado | Próximos estados |
-| --- | --- |
-| PENDING | PENDING_REFERENCE, PROCESSED, REJECTED, FAILED |
-| PENDING_REFERENCE | PENDING_REFERENCE, PROCESSED, REJECTED, FAILED |
-| PROCESSED, REJECTED, FAILED | Nenhum |
+| Estado                      | Próximos estados                               |
+| --------------------------- | ---------------------------------------------- |
+| PENDING                     | PENDING_REFERENCE, PROCESSED, REJECTED, FAILED |
+| PENDING_REFERENCE           | PENDING_REFERENCE, PROCESSED, REJECTED, FAILED |
+| PROCESSED, REJECTED, FAILED | Nenhum                                         |
 
 REJECTED não move saldo. FAILED existe no domínio, mas erros técnicos desconhecidos
 atualmente fazem retry/quarentena, sem criar uma falha financeira terminal. A série
@@ -186,7 +187,8 @@ a porta de identidade atual cobre HTTP. Tokens não pertencem ao domínio.
 
 ## Observabilidade e privacidade
 
-`JsonLogger` central implementa LoggerService do Nest e escreve JSON por evento.
+`nestjs-pino` substitui o logger do Nest. `JsonLogger` é a fachada de eventos e
+usa a mesma instância Pino, que escreve JSON por evento.
 Projeta somente campos permitidos: evento fixo, nível, tempo, IDs, status e medidas.
 Não serializa body, headers, playerId, Money, resposta, stack, mensagem de exceção
 ou SQL. Logging do ORM é desativado; Compose desativa statements, parâmetros e
@@ -194,7 +196,8 @@ detalhes de erro no PostgreSQL. Reproduzir a política em bancos gerenciados.
 
 AsyncLocalStorage isola concorrência. HTTP aceita `X-Correlation-Id` no formato
 `[A-Za-z0-9_.:@/-]{1,128}` ou gera UUID; devolve o header. SQS aceita correlationId
-válido ou usa MessageId. IDs inválidos são omitidos; identificadores devem ser
+válido ou usa MessageId quando ausente; um correlationId SQS malformado é rejeitado
+pelo Zod. IDs inválidos são omitidos dos logs; identificadores devem ser
 opacos e nunca conter dados pessoais/segredos. Os cinco campos existem nos logs,
 com `null` quando não aplicáveis/desconhecidos, como messageId HTTP ou transactionId
 de JSON inválido. Outbox transporta correlationId, messageId quando existente,
@@ -203,21 +206,21 @@ não envia um comando SQS, somente eventos pela outbox.
 
 `GET /metrics` exporta Prometheus 0.0.4. Séries fixas, sem IDs em labels:
 
-| Métrica, prefixo `wagering_` | Semântica |
-| --- | --- |
-| `transactions_total{status}` | Transições confirmadas PROCESSED/REJECTED/PENDING_REFERENCE/FAILED; exclui replay e OPENING |
-| `duplicates_total` | Replays e dispositions já existentes |
-| `idempotency_retries_total` | Colisões SQL nas constraints de dedup/reversão conhecidas |
-| `concurrency_retries_total` | Novas tentativas iniciadas pelo ProcessWager após rollback |
-| `lock_conflicts_total` | Rollbacks 40001/40P01/55P03; não conta espera bem-sucedida |
-| `sqs_retries_total` | Entregas no caminho de retry/visibilidade |
-| `dlq_sent_total` | Envios explícitos confirmados pelo broker; pode incluir duplicatas |
-| `dlq_received_total` | Entregas arquivadas, incluindo redrive nativo e redeliveries |
-| `outbox_retries_total` | Tentativas de publicação com falha |
-| `reconciliation_mismatches_total` | Reconciliações inconsistentes, sem valores |
-| `http_processing_seconds` | Histograma do handler, inclusive falhas/health; sem transferência da resposta |
-| `sqs_processing_seconds` | Histograma por entrega, incluindo commit/ACK; sem long poll/espera no broker |
-| `outbox_lag_seconds` | Histograma `publishedAt - occurredAt` em envios confirmados pelo SQS |
+| Métrica, prefixo `wagering_`      | Semântica                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `transactions_total{status}`      | Transições confirmadas PROCESSED/REJECTED/PENDING_REFERENCE/FAILED; exclui replay e OPENING |
+| `duplicates_total`                | Replays e dispositions já existentes                                                        |
+| `idempotency_retries_total`       | Colisões SQL nas constraints de dedup/reversão conhecidas                                   |
+| `concurrency_retries_total`       | Novas tentativas iniciadas pelo ProcessWager após rollback                                  |
+| `lock_conflicts_total`            | Rollbacks 40001/40P01/55P03; não conta espera bem-sucedida                                  |
+| `sqs_retries_total`               | Entregas no caminho de retry/visibilidade                                                   |
+| `dlq_sent_total`                  | Envios explícitos confirmados pelo broker; pode incluir duplicatas                          |
+| `dlq_received_total`              | Entregas arquivadas, incluindo redrive nativo e redeliveries                                |
+| `outbox_retries_total`            | Tentativas de publicação com falha                                                          |
+| `reconciliation_mismatches_total` | Reconciliações inconsistentes, sem valores                                                  |
+| `http_processing_seconds`         | Histograma do handler, inclusive falhas/health; sem transferência da resposta               |
+| `sqs_processing_seconds`          | Histograma por entrega, incluindo commit/ACK; sem long poll/espera no broker                |
+| `outbox_lag_seconds`              | Histograma `publishedAt - occurredAt` em envios confirmados pelo SQS                        |
 
 Histogramas cumulativos têm buckets de 5ms a 300s e +Inf. Uma transação pendente
 depois processada incrementa duas séries, uma por transição. Rollback não incrementa
@@ -246,32 +249,32 @@ bootstrap/deploy garantem schema. Liveness fica disponível após bootstrap.
 
 ## Taxonomia de erros e FailureCodes
 
-| Código de domínio | Significado | HTTP / SQS |
-| --- | --- | --- |
-| INVALID_MONEY | Tipo, formato, escala ou moeda sintaticamente inválidos | 400; DLQ, corrigir entrada |
-| INVALID_PAYLOAD | Campos inválidos, OPENING externo, wallet ausente/player errado | 400; DLQ |
-| CURRENCY_MISMATCH | Moedas incompatíveis | 422; ACK terminal, pode preceder persistência do wager |
-| INSUFFICIENT_FUNDS | BET excede saldo | REJECTED/422; ACK |
-| REVERSAL_INSUFFICIENT_FUNDS | ROLLBACK debitante excede saldo | REJECTED/422; ACK |
-| INVALID_REFERENCE | Tipo, identidade, valor ou estado da referência inválidos | 422; ACK; validação inicial pode não persistir wager |
-| REFERENCE_NOT_FOUND | Código para referência ausente | 422 se lançado; DLQ; fluxo normal usa PENDING_REFERENCE/202 sem failureCode |
-| REFERENCE_EXPIRED | TTL esgotado | REJECTED no worker; GET retorna 200; replay conserva 202 original |
-| ALREADY_REVERSED | Reversão daquele tipo já confirmada | REJECTED/422; ACK |
-| IDEMPOTENCY_CONFLICT | Chave, ID externo ou Inbox divergentes | 409; DLQ; sem novo efeito |
-| INVALID_STATE | Transição terminal/estado persistido incoerente | 500; DLQ, investigar |
-| INVALID_LEDGER | Integridade/aritmética inválida | 500; DLQ, investigar |
-| PERMANENT_INFRASTRUCTURE_FAILURE | Código terminal reservado | 500; DLQ; não atribuído a toda exceção |
+| Código de domínio                | Significado                                                     | HTTP / SQS                                                                  |
+| -------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| INVALID_MONEY                    | Tipo, formato, escala ou moeda sintaticamente inválidos         | 400; DLQ, corrigir entrada                                                  |
+| INVALID_PAYLOAD                  | Campos inválidos, OPENING externo, wallet ausente/player errado | 400; DLQ                                                                    |
+| CURRENCY_MISMATCH                | Moedas incompatíveis                                            | 422; ACK terminal, pode preceder persistência do wager                      |
+| INSUFFICIENT_FUNDS               | BET excede saldo                                                | REJECTED/422; ACK                                                           |
+| REVERSAL_INSUFFICIENT_FUNDS      | ROLLBACK debitante excede saldo                                 | REJECTED/422; ACK                                                           |
+| INVALID_REFERENCE                | Tipo, identidade, valor ou estado da referência inválidos       | 422; ACK; validação inicial pode não persistir wager                        |
+| REFERENCE_NOT_FOUND              | Código para referência ausente                                  | 422 se lançado; DLQ; fluxo normal usa PENDING_REFERENCE/202 sem failureCode |
+| REFERENCE_EXPIRED                | TTL esgotado                                                    | REJECTED no worker; GET retorna 200; replay conserva 202 original           |
+| ALREADY_REVERSED                 | Reversão daquele tipo já confirmada                             | REJECTED/422; ACK                                                           |
+| IDEMPOTENCY_CONFLICT             | Chave, ID externo ou Inbox divergentes                          | 409; DLQ; sem novo efeito                                                   |
+| INVALID_STATE                    | Transição terminal/estado persistido incoerente                 | 500; DLQ, investigar                                                        |
+| INVALID_LEDGER                   | Integridade/aritmética inválida                                 | 500; DLQ, investigar                                                        |
+| PERMANENT_INFRASTRUCTURE_FAILURE | Código terminal reservado                                       | 500; DLQ; não atribuído a toda exceção                                      |
 
-| Infraestrutura/transporte | Política |
-| --- | --- |
-| SQLSTATE 40001/40P01/55P03 | RetryableTransactionError após rollback; até 4 tentativas; depois HTTP 503 |
-| 23505 em identidades/reversões conhecidas | Retry limitado e releitura sob lock |
-| 23505 wallets_player_currency_unique | HTTP 409 / WALLET_ALREADY_EXISTS |
-| Outros 22xxx/23xxx e 42501 | SQS permanente/DLQ; HTTP 503 genérico sem SQL |
-| Rede, timeout, commit ambíguo, exceção desconhecida | HTTP 503 / INFRASTRUCTURE_UNAVAILABLE; SQS retry limitado/depois DLQ |
-| JSON/envelope inválido | HTTP 400 / INVALID_PAYLOAD; SQS InvalidEnvelopeError permanente |
-| Rota/recurso consultado ausente | HTTP 404 / NOT_FOUND |
-| Dependência de readiness indisponível | HTTP 503 com status das dependências |
+| Infraestrutura/transporte                           | Política                                                                   |
+| --------------------------------------------------- | -------------------------------------------------------------------------- |
+| SQLSTATE 40001/40P01/55P03                          | RetryableTransactionError após rollback; até 4 tentativas; depois HTTP 503 |
+| 23505 em identidades/reversões conhecidas           | Retry limitado e releitura sob lock                                        |
+| 23505 wallets_player_currency_unique                | HTTP 409 / WALLET_ALREADY_EXISTS                                           |
+| Outros 22xxx/23xxx e 42501                          | SQS permanente/DLQ; HTTP 503 genérico sem SQL                              |
+| Rede, timeout, commit ambíguo, exceção desconhecida | HTTP 503 / INFRASTRUCTURE_UNAVAILABLE; SQS retry limitado/depois DLQ       |
+| JSON/envelope inválido                              | HTTP 400 / INVALID_PAYLOAD; SQS InvalidEnvelopeError permanente            |
+| Rota/recurso consultado ausente                     | HTTP 404 / NOT_FOUND                                                       |
+| Dependência de readiness indisponível               | HTTP 503 com status das dependências                                       |
 
 Códigos HTTP adicionais não são FailureCodes persistidos. ACK de erro terminal
 sem wager depende de disposition confirmada. Falha ao enviar para DLQ impede ACK.

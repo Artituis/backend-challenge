@@ -1,11 +1,26 @@
 import { describe, expect, test } from 'bun:test';
-import { DomainError, InboxMessage, OutboxMessage } from '../../src/domain';
+
 import type { JsonObject, JsonValue } from '../../src/domain';
+import { DomainError, InboxMessage, OutboxMessage } from '../../src/domain';
 import { at, later } from './fixtures';
 
-const inboxProps = () => ({ messageId: 'msg-1', consumerName: 'wagering', payloadHash: 'hash-1', receivedAt: at() });
-const outboxProps = () => ({ id: 'event-1', aggregateId: 'wallet-1', eventType: 'WalletBalanceChanged',
-  payload: { data: { money: { amount: '10.00', currency: 'BRL' } }, version: 1, tags: ['wagering'] }, occurredAt: at() });
+const inboxProps = () => ({
+  messageId: 'msg-1',
+  consumerName: 'wagering',
+  payloadHash: 'hash-1',
+  receivedAt: at(),
+});
+const outboxProps = () => ({
+  id: 'event-1',
+  aggregateId: 'wallet-1',
+  eventType: 'WalletBalanceChanged',
+  payload: {
+    data: { money: { amount: '10.00', currency: 'BRL' } },
+    version: 1,
+    tags: ['wagering'],
+  },
+  occurredAt: at(),
+});
 
 describe('InboxMessage', () => {
   test('receives pending and tracks processing once', () => {
@@ -21,7 +36,9 @@ describe('InboxMessage', () => {
     const inbox = InboxMessage.receive(inboxProps());
     inbox.assertSameDelivery(inboxProps());
     for (const field of ['messageId', 'consumerName', 'payloadHash']) {
-      expect(() => inbox.assertSameDelivery({ ...inboxProps(), [field]: 'other' })).toThrow(DomainError);
+      expect(() => inbox.assertSameDelivery({ ...inboxProps(), [field]: 'other' })).toThrow(
+        DomainError,
+      );
     }
   });
   test('defends dates and rejects invalid processing timestamps atomically', () => {
@@ -83,8 +100,12 @@ describe('OutboxMessage', () => {
   });
   test('failed retry validation leaves the schedule unchanged', () => {
     const outbox = OutboxMessage.enqueue(outboxProps());
-    for (const policy of [{ baseDelayMs: 0, maxDelayMs: 10 }, { baseDelayMs: 20, maxDelayMs: 10 },
-      { baseDelayMs: 1.5, maxDelayMs: 10 }, { baseDelayMs: 1, maxDelayMs: Infinity }]) {
+    for (const policy of [
+      { baseDelayMs: 0, maxDelayMs: 10 },
+      { baseDelayMs: 20, maxDelayMs: 10 },
+      { baseDelayMs: 1.5, maxDelayMs: 10 },
+      { baseDelayMs: 1, maxDelayMs: Infinity },
+    ]) {
       expect(() => outbox.scheduleRetry(at(), policy)).toThrow(DomainError);
       expect(outbox.attempts).toBe(0);
       expect(outbox.nextAttemptAt).toBeUndefined();
@@ -109,29 +130,53 @@ describe('OutboxMessage', () => {
     outbox.nextAttemptAt?.setFullYear(2000);
     expect(outbox.nextAttemptAt?.getTime()).toBe(at().getTime() + 1000);
   });
-  test.each([undefined, 1n, NaN, Infinity, new Date(), () => 1])('rejects non-JSON payload value %s', value => {
-    expect(() => OutboxMessage.enqueue({ ...outboxProps(), payload: { value } as unknown as JsonObject })).toThrow(DomainError);
-  });
+  test.each([undefined, 1n, NaN, Infinity, new Date(), () => 1])(
+    'rejects non-JSON payload value %s',
+    (value) => {
+      expect(() =>
+        OutboxMessage.enqueue({ ...outboxProps(), payload: { value } as unknown as JsonObject }),
+      ).toThrow(DomainError);
+    },
+  );
   test('rejects cycles but allows shared acyclic objects', () => {
     const cycle: Record<string, JsonValue> = {};
     cycle['self'] = cycle;
     expect(() => OutboxMessage.enqueue({ ...outboxProps(), payload: cycle })).toThrow(DomainError);
     const child = { value: 'ok' };
-    expect(OutboxMessage.enqueue({ ...outboxProps(), payload: { a: child, b: child } }).payload).toEqual({ a: child, b: child });
+    expect(
+      OutboxMessage.enqueue({ ...outboxProps(), payload: { a: child, b: child } }).payload,
+    ).toEqual({ a: child, b: child });
   });
   test('rehydrates pending and published snapshots preserving attempts', () => {
-    const pending = OutboxMessage.rehydrate({ ...outboxProps(), attempts: 3, nextAttemptAt: later() });
+    const pending = OutboxMessage.rehydrate({
+      ...outboxProps(),
+      attempts: 3,
+      nextAttemptAt: later(),
+    });
     expect(pending.attempts).toBe(3);
     expect(pending.isDue(at())).toBe(false);
     expect(pending.isDue(later())).toBe(true);
-    const published = OutboxMessage.rehydrate({ ...outboxProps(), attempts: 3, publishedAt: later() });
+    const published = OutboxMessage.rehydrate({
+      ...outboxProps(),
+      attempts: 3,
+      publishedAt: later(),
+    });
     expect(published.isPending()).toBe(false);
     expect(published.attempts).toBe(3);
   });
   test('rejects inconsistent snapshots and counter overflow', () => {
     expect(() => OutboxMessage.rehydrate({ ...outboxProps(), attempts: -1 })).toThrow(DomainError);
-    expect(() => OutboxMessage.rehydrate({ ...outboxProps(), attempts: 0, nextAttemptAt: later() })).toThrow(DomainError);
-    expect(() => OutboxMessage.rehydrate({ ...outboxProps(), attempts: 1, nextAttemptAt: later(), publishedAt: later() })).toThrow(DomainError);
+    expect(() =>
+      OutboxMessage.rehydrate({ ...outboxProps(), attempts: 0, nextAttemptAt: later() }),
+    ).toThrow(DomainError);
+    expect(() =>
+      OutboxMessage.rehydrate({
+        ...outboxProps(),
+        attempts: 1,
+        nextAttemptAt: later(),
+        publishedAt: later(),
+      }),
+    ).toThrow(DomainError);
     const outbox = OutboxMessage.rehydrate({ ...outboxProps(), attempts: Number.MAX_SAFE_INTEGER });
     expect(() => outbox.scheduleRetry(at())).toThrow(DomainError);
     expect(outbox.attempts).toBe(Number.MAX_SAFE_INTEGER);

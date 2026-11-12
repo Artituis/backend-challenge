@@ -88,25 +88,24 @@ revisada, com `up` e `down`; registre sua classe em `migrationsList`.
 
 Garantias implementadas no banco:
 
-| Invariante | Proteção |
-| --- | --- |
-| Uma wallet por player/moeda | `UNIQUE (player_id, currency)` |
-| Idempotência e identidade externa por provider | Duas constraints únicas compostas |
-| Uma entrega por consumer/message | PK composta da inbox |
-| Um evento por ID | PK da outbox |
-| Sem dupla reversão do mesmo tipo | Índice único parcial para reversões processadas |
-| Saldo não negativo e aritmética exata | Checks monetários e equação do ledger |
-| Moeda/player da transação iguais aos da wallet | FK composta |
-| Uma entrada por transação/wallet e por versão | Duas constraints únicas do ledger |
-| Histórico imutável | Triggers contra UPDATE/DELETE/TRUNCATE do ledger |
-| Payload imutável e estados terminais | Triggers para wager, inbox e outbox |
-| Referências válidas | FK e trigger verificando identidade, tipo, estado e valor |
-| Saldo materializado consistente | Triggers deferred verificando cadeia do ledger e sua última versão |
-| Ledger apenas para operação financeira processada | Triggers deferred em ambos os lados |
+| Invariante                                        | Proteção                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| Uma wallet por player/moeda                       | `UNIQUE (player_id, currency)`                                     |
+| Idempotência e identidade externa por provider    | Duas constraints únicas compostas                                  |
+| Uma entrega por consumer/message                  | PK composta da inbox                                               |
+| Um evento por ID                                  | PK da outbox                                                       |
+| Sem dupla reversão do mesmo tipo                  | Índice único parcial para reversões processadas                    |
+| Saldo não negativo e aritmética exata             | Checks monetários e equação do ledger                              |
+| Moeda/player da transação iguais aos da wallet    | FK composta                                                        |
+| Uma entrada por transação/wallet e por versão     | Duas constraints únicas do ledger                                  |
+| Histórico imutável                                | Triggers contra UPDATE/DELETE/TRUNCATE do ledger                   |
+| Payload imutável e estados terminais              | Triggers para wager, inbox e outbox                                |
+| Referências válidas                               | FK e trigger verificando identidade, tipo, estado e valor          |
+| Saldo materializado consistente                   | Triggers deferred verificando cadeia do ledger e sua última versão |
+| Ledger apenas para operação financeira processada | Triggers deferred em ambos os lados                                |
 
 `wallet_version` no ledger é metadado de persistência. A abertura positiva ocupa
-a versão 1; abertura zero não gera entrada e o primeiro movimento ocupa a versão
-2. Cada entrada posterior deve continuar o saldo da versão anterior. No commit,
+a versão 1; abertura zero não gera entrada e o primeiro movimento ocupa a versão 2. Cada entrada posterior deve continuar o saldo da versão anterior. No commit,
 saldo, versão e timestamp da wallet devem corresponder à última entrada. Essas
 verificações usam os índices por wallet/versão e não recalculam a soma de todo o
 histórico. Uma transação pode acumular vários movimentos, inclusive com efeito
@@ -135,12 +134,14 @@ const unitOfWork = new MikroUnitOfWork(orm);
 // Exemplo da fronteira de persistência; o use case completo também trata
 // inbox, payload/hash de replay, rejeições e eventos de integração.
 async function persistBet(props: CreateWagerTransactionProps, at: Date) {
-  return unitOfWork.run(async repositories => {
+  return unitOfWork.run(async (repositories) => {
     const wallet = await repositories.wallets.findById(props.walletId);
     if (!wallet) throw new Error('Wallet not found');
     const transaction = WagerTransaction.create(props);
     wallet.debit(Money.from(props.money.toJSON()), {
-      transactionId: transaction.id, ledgerEntryId: crypto.randomUUID(), at,
+      transactionId: transaction.id,
+      ledgerEntryId: crypto.randomUUID(),
+      at,
     });
     transaction.markProcessed(undefined, at);
     repositories.transactions.add(transaction);

@@ -16,11 +16,11 @@ O Compose aguarda PostgreSQL e LocalStack, executa migrations e provisiona as
 filas antes de iniciar os workers. `docker compose up -d --scale worker=3 worker`
 inicia réplicas concorrentes; `docker compose stop worker` envia SIGTERM.
 
-| Fila | Função |
-| --- | --- |
-| `wager-transactions.fifo` | Comandos; redrive nativo após cinco recebimentos |
+| Fila                          | Função                                                 |
+| ----------------------------- | ------------------------------------------------------ |
+| `wager-transactions.fifo`     | Comandos; redrive nativo após cinco recebimentos       |
 | `wager-transactions-dlq.fifo` | Falhas permanentes/esgotadas; arquivadas em PostgreSQL |
-| `wager-events.fifo` | Eventos publicados pela outbox |
+| `wager-events.fifo`           | Eventos publicados pela outbox                         |
 
 No host: `bun install --frozen-lockfile`, `bun run db:migrate`,
 `bun run sqs:provision` e `bun run start:worker`, com os serviços já iniciados.
@@ -65,14 +65,14 @@ atomicamente. Duplicatas retornam o resultado salvo; payload diferente com a
 mesma identidade gera conflito. Os locks e constraints das fases anteriores
 continuam protegendo os efeitos financeiros.
 
-| Resultado | Ação |
-| --- | --- |
-| Processado, rejeição persistida ou pendência de referência | Ack após commit |
-| Erro terminal de negócio lançado antes de persistir wager | Commit de disposição `TERMINAL`, depois ack |
-| Conectividade, deadlock, commit ambíguo ou falha desconhecida | Sem ack; retry exponencial com jitter, até 900 s |
+| Resultado                                                             | Ação                                             |
+| --------------------------------------------------------------------- | ------------------------------------------------ |
+| Processado, rejeição persistida ou pendência de referência            | Ack após commit                                  |
+| Erro terminal de negócio lançado antes de persistir wager             | Commit de disposição `TERMINAL`, depois ack      |
+| Conectividade, deadlock, commit ambíguo ou falha desconhecida         | Sem ack; retry exponencial com jitter, até 900 s |
 | JSON inválido, conflito de identidade, erro permanente de domínio/SQL | Commit de `DEAD_LETTER`, envio à DLQ, depois ack |
-| Limite de recebimentos | Mesmo fluxo persistente de DLQ |
-| Falha ao persistir disposição ou publicar na DLQ | Sem ack; entrega recuperável |
+| Limite de recebimentos                                                | Mesmo fluxo persistente de DLQ                   |
+| Falha ao persistir disposição ou publicar na DLQ                      | Sem ack; entrega recuperável                     |
 
 O redrive nativo também protege contra crashes anteriores à classificação.
 `message_dispositions` guarda fila, ID, SHA-256, corpo e motivo. Uma disposição
